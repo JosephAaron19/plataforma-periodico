@@ -188,6 +188,8 @@ DATABASES = {
 
 DATABASE_ROUTERS = ['config.db_router.PeriodicoRouter']
 
+AUTH_USER_MODEL = 'accounts.Usuario'
+
 # Logging Config
 LOGGING = {
     'version': 1,
@@ -213,3 +215,4 @@ LOGGING = {
         'level': 'INFO',
     },
 }
+
