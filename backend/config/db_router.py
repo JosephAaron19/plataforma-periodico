@@ -25,10 +25,15 @@ class PeriodicoRouter:
     def allow_relation(self, obj1, obj2, **hints):
         # Allow relations within same app label / schema limits
         if (
+            obj1._meta.app_label in self.route_app_labels and
+            obj2._meta.app_label in self.route_app_labels
+        ):
+            return True
+        if (
             obj1._meta.app_label in self.route_app_labels or
             obj2._meta.app_label in self.route_app_labels
         ):
-            return obj1._meta.app_label == obj2._meta.app_label
+            return False
         return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):

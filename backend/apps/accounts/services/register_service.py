@@ -7,6 +7,8 @@ from apps.accounts.constants import EstadoUsuario, EstadoVerificacion
 from apps.accounts.services.token_service import generate_verification_token
 from apps.accounts.services.email_service import send_verification_email
 from apps.accounts.utils.log_utils import mask_email
+from apps.audit.services.audit_service import AuditService
+from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,8 @@ def register_user(
     tipo_documento: str = None,
     numero_documento: str = None,
     telefono: str = None,
-    ip_address: str = None
+    ip_address: str = None,
+    user_agent: str = None
 ) -> Usuario:
     """
     Registers a new user, or handles existing accounts securely to prevent account enumeration.
@@ -48,6 +51,17 @@ def register_user(
         # Policy for PENDIENTE user: invalid prior tokens, generate new token and resend email
         if existing_user.estado == EstadoUsuario.PENDIENTE:
             logger.info(f"Registro solicitado para correo PENDIENTE {masked}. Regenerando token de verificación.")
+            
+            # Capture old values before they are modified in-place
+            old_values = {
+                'nombres': existing_user.nombres,
+                'apellidos': existing_user.apellidos,
+                'tipo_documento': existing_user.tipo_documento,
+                'numero_documento': existing_user.numero_documento,
+                'telefono': existing_user.telefono,
+                'usr_estado': existing_user.estado,
+                'usr_correo_verificado': existing_user.correo_verificado
+            }
             
             with transaction.atomic(using='periodico_db'):
                 # Reset details and password
@@ -81,6 +95,30 @@ def register_user(
                     intentos=0
                 )
                 verification.save(using='periodico_db')
+                
+                # Record audit log
+                AuditService.record_event(
+                    usuario=existing_user,
+                    modulo=AuditoriaModulo.M02,
+                    accion=AuditoriaAccion.REGISTRO_USUARIO,
+                    entidad='usr_usuario',
+                    entidad_id=str(existing_user.id),
+                    valores_anteriores=old_values,
+                    valores_nuevos={
+                        'nombres': nombres,
+                        'apellidos': apellidos,
+                        'tipo_documento': tipo_documento,
+                        'numero_documento': numero_documento,
+                        'telefono': telefono,
+                        'usr_estado': existing_user.estado,
+                        'usr_correo_verificado': existing_user.correo_verificado,
+                        're_registro': True
+                    },
+                    resultado=AuditoriaResultado.EXITOSO,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    proceso_origen="Registro Web"
+                )
                 
                 # Schedule Celery task on commit of periodico_db transaction
                 transaction.on_commit(
@@ -127,6 +165,30 @@ def register_user(
             intentos=0
         )
         verification.save(using='periodico_db')
+        
+        # Record audit log
+        AuditService.record_event(
+            usuario=user,
+            modulo=AuditoriaModulo.M02,
+            accion=AuditoriaAccion.REGISTRO_USUARIO,
+            entidad='usr_usuario',
+            entidad_id=str(user.id),
+            valores_anteriores=None,
+            valores_nuevos={
+                'usr_correo': normalized_email,
+                'nombres': nombres,
+                'apellidos': apellidos,
+                'tipo_documento': tipo_documento,
+                'numero_documento': numero_documento,
+                'telefono': telefono,
+                'usr_estado': EstadoUsuario.PENDIENTE,
+                'usr_correo_verificado': False
+            },
+            resultado=AuditoriaResultado.EXITOSO,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            proceso_origen="Registro Web"
+        )
         
         # Schedule Celery task on commit
         transaction.on_commit(

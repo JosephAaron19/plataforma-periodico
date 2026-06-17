@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from apps.accounts.serializers.register import UserRegisterSerializer
 from apps.accounts.services.register_service import register_user
+from apps.audit.utils import get_client_ip, get_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +16,8 @@ class RegisterView(APIView):
         serializer = UserRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Get client IP address
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip_address = x_forwarded_for.split(',')[0].strip()
-        else:
-            ip_address = request.META.get('REMOTE_ADDR')
+        ip_address = get_client_ip(request)
+        user_agent = get_user_agent(request)
             
         validated_data = serializer.validated_data
         
@@ -33,7 +30,8 @@ class RegisterView(APIView):
                 tipo_documento=validated_data.get('tipo_documento'),
                 numero_documento=validated_data.get('numero_documento'),
                 telefono=validated_data.get('telefono'),
-                ip_address=ip_address
+                ip_address=ip_address,
+                user_agent=user_agent
             )
             
             return Response(

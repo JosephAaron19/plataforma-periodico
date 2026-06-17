@@ -24,6 +24,14 @@ class DummyAtomic:
 
 @patch('django.db.transaction.atomic', DummyAtomic)
 class RegistrationFlowTest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.audit_patcher = patch('apps.audit.services.audit_service.AuditService.record_event')
+        self.mock_record_event = self.audit_patcher.start()
+
+    def tearDown(self):
+        self.audit_patcher.stop()
+        super().tearDown()
     
     @patch('apps.accounts.serializers.register.validate_password')
     def test_register_serializer_validation_success(self, mock_validate_pw):
@@ -146,6 +154,14 @@ class RegistrationFlowTest(SimpleTestCase):
 
 @patch('django.db.transaction.atomic', DummyAtomic)
 class VerificationFlowTest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.audit_patcher = patch('apps.audit.services.audit_service.AuditService.record_event')
+        self.mock_record_event = self.audit_patcher.start()
+
+    def tearDown(self):
+        self.audit_patcher.stop()
+        super().tearDown()
 
     @patch('apps.accounts.models.verificacion_correo.VerificacionCorreo.objects.using')
     @patch('apps.accounts.models.usuario.Usuario.save')
