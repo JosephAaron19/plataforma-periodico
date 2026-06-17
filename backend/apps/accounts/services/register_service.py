@@ -6,6 +6,7 @@ from apps.accounts.models.verificacion_correo import VerificacionCorreo
 from apps.accounts.constants import EstadoUsuario, EstadoVerificacion
 from apps.accounts.services.token_service import generate_verification_token
 from apps.accounts.services.email_service import send_verification_email
+from apps.accounts.utils.log_utils import mask_email
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -22,9 +23,9 @@ def register_user(
     ip_address: str = None
 ) -> Usuario:
     """
-    Registers a new user, creates their email verification record, and triggers the async email task.
+    Registers a new user, or handles existing accounts securely to prevent account enumeration.
     """
-    # 1. Input Sanitization & Normalization
+    # 1. Validation checks
     if not email:
         raise ValidationError({"email": "El correo electrónico es obligatorio"})
     if not password or len(password) < 8:
@@ -33,21 +34,74 @@ def register_user(
         raise ValidationError({"nombres": "Los nombres son obligatorios"})
         
     normalized_email = email.strip().lower()
+    masked = mask_email(normalized_email)
     
-    # 2. Check for Duplicate Emails
-    if Usuario.objects.filter(usr_correo=normalized_email).exists():
-        raise ValidationError({"email": "El correo electrónico ya se encuentra registrado"})
-        
-    # Check for Duplicate Document Number if provided
-    if numero_documento and Usuario.objects.filter(numero_documento=numero_documento).exists():
+    # 2. Check for existing user in periodico_db
+    existing_user = Usuario.objects.using('periodico_db').filter(usr_correo=normalized_email).first()
+    
+    if existing_user:
+        # Policy for ACTIVO user: simulate success without sending mail or writing anything
+        if existing_user.estado == EstadoUsuario.ACTIVO:
+            logger.info(f"Registro solicitado para correo ACTIVO {masked}. Simulando respuesta exitosa.")
+            return existing_user
+            
+        # Policy for PENDIENTE user: invalid prior tokens, generate new token and resend email
+        if existing_user.estado == EstadoUsuario.PENDIENTE:
+            logger.info(f"Registro solicitado para correo PENDIENTE {masked}. Regenerando token de verificación.")
+            
+            with transaction.atomic(using='periodico_db'):
+                # Reset details and password
+                existing_user.nombres = nombres
+                existing_user.apellidos = apellidos
+                existing_user.tipo_documento = tipo_documento
+                existing_user.numero_documento = numero_documento
+                existing_user.telefono = telefono
+                existing_user.set_password(password)
+                existing_user.save(using='periodico_db')
+                
+                # Invalid prior pending verification tokens
+                VerificacionCorreo.objects.using('periodico_db').filter(
+                    usuario=existing_user,
+                    estado=EstadoVerificacion.PENDIENTE
+                ).update(
+                    estado=EstadoVerificacion.INVALIDADA,
+                    motivo_invalidacion="Re-registro o solicitud de nuevo enlace"
+                )
+                
+                # Generate new token
+                plain_token, hashed_token, expires_at = generate_verification_token()
+                
+                verification = VerificacionCorreo(
+                    id=uuid.uuid4(),
+                    usuario=existing_user,
+                    token_hash=hashed_token,
+                    fecha_expiracion=expires_at,
+                    estado=EstadoVerificacion.PENDIENTE,
+                    direccion_ip=ip_address,
+                    intentos=0
+                )
+                verification.save(using='periodico_db')
+                
+                # Schedule Celery task on commit of periodico_db transaction
+                transaction.on_commit(
+                    lambda: send_verification_email(
+                        email=normalized_email,
+                        nombres=nombres,
+                        plain_token=plain_token
+                    ),
+                    using='periodico_db'
+                )
+                
+            return existing_user
+
+    # Check for Duplicate Document Number for NEW users to avoid DB integrity errors
+    if numero_documento and Usuario.objects.using('periodico_db').filter(numero_documento=numero_documento).exists():
         raise ValidationError({"numero_documento": "El número de documento ya se encuentra registrado"})
 
-    # 3. Create User and Verification Record in a Transaction
-    logger.info(f"Iniciando registro de usuario para {normalized_email}")
+    # 3. Create New User
+    logger.info(f"Iniciando registro de nuevo usuario para {masked}")
     
     with transaction.atomic(using='periodico_db'):
-        # Instantiate Usuario (managed = False)
-        # Note: password hash is set via set_password or managers
         user = Usuario(
             usr_correo=normalized_email,
             nombres=nombres,
@@ -61,10 +115,8 @@ def register_user(
         user.set_password(password)
         user.save(using='periodico_db')
         
-        # Generate verification token
         plain_token, hashed_token, expires_at = generate_verification_token()
         
-        # Instantiate and save VerificacionCorreo record
         verification = VerificacionCorreo(
             id=uuid.uuid4(),
             usuario=user,
@@ -76,13 +128,14 @@ def register_user(
         )
         verification.save(using='periodico_db')
         
-        logger.info(f"Usuario {user.id} y verificación creados exitosamente")
-
-    # 4. Trigger Async Verification Email outside of the atomic transaction block
-    send_verification_email(
-        email=user.usr_correo,
-        nombres=user.nombres,
-        plain_token=plain_token
-    )
-    
+        # Schedule Celery task on commit
+        transaction.on_commit(
+            lambda: send_verification_email(
+                email=user.usr_correo,
+                nombres=user.nombres,
+                plain_token=plain_token
+            ),
+            using='periodico_db'
+        )
+        
     return user

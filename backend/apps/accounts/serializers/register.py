@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.accounts.models.usuario import Usuario
 
 class UserRegisterSerializer(serializers.Serializer):
@@ -18,16 +20,27 @@ class UserRegisterSerializer(serializers.Serializer):
     telefono = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     def validate_email(self, value):
-        normalized_email = value.strip().lower()
-        if Usuario.objects.filter(usr_correo=normalized_email).exists():
-            raise serializers.ValidationError("El correo electrónico ya se encuentra registrado")
-        return normalized_email
+        if not value:
+            raise serializers.ValidationError("El correo electrónico es obligatorio")
+        return value.strip().lower()
 
     def validate_numero_documento(self, value):
         if value:
-            # Only validate if not empty
-            val = value.strip()
-            if Usuario.objects.filter(numero_documento=val).exists():
-                raise serializers.ValidationError("El número de documento ya se encuentra registrado")
-            return val
+            return value.strip()
         return value
+
+    def validate(self, attrs):
+        email = attrs.get('email', '')
+        password = attrs.get('password', '')
+        nombres = attrs.get('nombres', '')
+        apellidos = attrs.get('apellidos', '')
+        
+        # Instantiate dummy user to run password similarity and strength validation
+        dummy_user = Usuario(usr_correo=email, nombres=nombres, apellidos=apellidos)
+        try:
+            validate_password(password, dummy_user)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"password": list(e.messages)})
+            
+        return attrs
+
