@@ -1,9 +1,11 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from config.views import HealthCheckView, DatabaseHealthCheckView, RedisHealthCheckView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Authentication endpoints
+    path('api/v1/auth/', include('apps.accounts.urls')),
     # Versioned API Health Check endpoints
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
     path('api/v1/health/database/', DatabaseHealthCheckView.as_view(), name='health_database'),
