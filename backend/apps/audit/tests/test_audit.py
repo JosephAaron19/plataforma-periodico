@@ -4,7 +4,17 @@ from unittest.mock import patch, MagicMock
 from apps.audit.models.auditoria import Auditoria
 from apps.audit.services.audit_service import AuditService, sanitize_dict, truncate_value
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
+from apps.audit.utils import get_client_ip
 from apps.accounts.models.usuario import Usuario
+
+class DummyAtomic:
+    def __init__(self, *args, **kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
 
 class AuditoriaModelTest(SimpleTestCase):
     def test_model_meta(self):
@@ -32,6 +42,14 @@ class AuditoriaModelTest(SimpleTestCase):
         self.assertEqual(Auditoria._meta.get_field('agente_usuario').db_column, 'aud_agente_usuario')
         self.assertEqual(Auditoria._meta.get_field('proceso_origen').db_column, 'aud_proceso_origen')
         self.assertEqual(Auditoria._meta.get_field('fecha').db_column, 'aud_fecha')
+
+    def test_foreign_key_on_delete_behavior(self):
+        """
+        Verify that foreign key delete rule maps to DO_NOTHING.
+        """
+        from django.db.models import DO_NOTHING
+        field = Auditoria._meta.get_field('usuario')
+        self.assertEqual(field.remote_field.on_delete, DO_NOTHING)
 
 
 class AuditServiceSanitizationTest(SimpleTestCase):
@@ -77,6 +95,37 @@ class AuditServiceSanitizationTest(SimpleTestCase):
         self.assertEqual(clean_data["list_field"][0]["token"], "[REDACTED]")
         self.assertEqual(clean_data["list_field"][1]["safe"], "data")
 
+    def test_sanitize_dict_no_mutation(self):
+        """
+        Verify that sanitize_dict does not mutate original objects.
+        """
+        original = {
+            "Password": "mysecretpassword",
+            "nested": {
+                "token": "secret_token"
+            }
+        }
+        sanitized = sanitize_dict(original)
+        
+        self.assertEqual(original["Password"], "mysecretpassword")
+        self.assertEqual(original["nested"]["token"], "secret_token")
+        self.assertEqual(sanitized["Password"], "[REDACTED]")
+        self.assertEqual(sanitized["nested"]["token"], "[REDACTED]")
+
+    def test_sanitize_dict_case_insensitive_and_partial(self):
+        """
+        Verify that sanitization handles mixed case and partial keywords.
+        """
+        original = {
+            "my_password_value": "secret",
+            "Verification_Token": "token123",
+            "AUTH_header": "Bearer abc"
+        }
+        sanitized = sanitize_dict(original)
+        self.assertEqual(sanitized["my_password_value"], "[REDACTED]")
+        self.assertEqual(sanitized["Verification_Token"], "[REDACTED]")
+        self.assertEqual(sanitized["AUTH_header"], "[REDACTED]")
+
     def test_truncate_value(self):
         """
         Verify truncate_value limits string length.
@@ -86,6 +135,52 @@ class AuditServiceSanitizationTest(SimpleTestCase):
         self.assertIsNone(truncate_value(None, 5))
 
 
+class AuditIPValidationTest(SimpleTestCase):
+    def test_get_client_ip_real_ip(self):
+        """
+        Verify that X-Real-IP is preferred.
+        """
+        request = MagicMock()
+        request.META = {
+            'HTTP_X_REAL_IP': '192.168.1.50',
+            'REMOTE_ADDR': '127.0.0.1'
+        }
+        self.assertEqual(get_client_ip(request), '192.168.1.50')
+
+    def test_get_client_ip_fallback_remote_addr(self):
+        """
+        Verify fallback to REMOTE_ADDR.
+        """
+        request = MagicMock()
+        request.META = {
+            'REMOTE_ADDR': '127.0.0.1'
+        }
+        self.assertEqual(get_client_ip(request), '127.0.0.1')
+
+    def test_get_client_ip_invalid_format(self):
+        """
+        Verify that invalid IP strings are rejected and return None.
+        """
+        request = MagicMock()
+        request.META = {
+            'HTTP_X_REAL_IP': 'invalid-ip-string',
+            'REMOTE_ADDR': '127.0.0.1'
+        }
+        self.assertIsNone(get_client_ip(request))
+
+    def test_get_client_ip_no_forwarded_for_trust(self):
+        """
+        Verify that X-Forwarded-For is ignored in favor of REMOTE_ADDR if Real-IP is missing.
+        """
+        request = MagicMock()
+        request.META = {
+            'HTTP_X_FORWARDED_FOR': '8.8.8.8, 9.9.9.9',
+            'REMOTE_ADDR': '127.0.0.1'
+        }
+        self.assertEqual(get_client_ip(request), '127.0.0.1')
+
+
+@patch('django.db.transaction.atomic', DummyAtomic)
 class AuditServiceTest(SimpleTestCase):
     @patch('apps.audit.models.auditoria.Auditoria.save')
     def test_record_event_success(self, mock_save):
@@ -163,7 +258,6 @@ class AuditServiceTest(SimpleTestCase):
         """
         mock_save.side_effect = Exception("Database is down")
         
-        # Should not raise exception, return None
         res = AuditService.record_event(
             proceso_origen="Test",
             modulo=AuditoriaModulo.M02,
@@ -174,7 +268,6 @@ class AuditServiceTest(SimpleTestCase):
         )
         self.assertIsNone(res)
 
-        # Should raise exception when throw_on_error is True
         with self.assertRaises(Exception):
             AuditService.record_event(
                 proceso_origen="Test",
@@ -184,3 +277,23 @@ class AuditServiceTest(SimpleTestCase):
                 resultado=AuditoriaResultado.EXITOSO,
                 throw_on_error=True
             )
+
+    @patch('apps.audit.models.auditoria.Auditoria.save')
+    def test_record_event_savepoint_preserves_outer_transaction(self, mock_save):
+        """
+        Verify that saving audit triggers an atomic block with savepoint=True.
+        """
+        from django.db import IntegrityError
+        mock_save.side_effect = IntegrityError("Database constraint error")
+        
+        with patch('django.db.transaction.atomic') as mock_atomic:
+            res = AuditService.record_event(
+                proceso_origen="Test",
+                modulo=AuditoriaModulo.M02,
+                accion=AuditoriaAccion.REGISTRO_USUARIO,
+                entidad='usr_usuario',
+                resultado=AuditoriaResultado.EXITOSO,
+                throw_on_error=False
+            )
+            self.assertIsNone(res)
+            mock_atomic.assert_called_with(using='periodico_db', savepoint=True)

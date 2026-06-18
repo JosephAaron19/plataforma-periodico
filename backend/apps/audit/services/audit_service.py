@@ -1,5 +1,6 @@
 import logging
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from apps.audit.models.auditoria import Auditoria
 
 logger = logging.getLogger(__name__)
@@ -7,22 +8,36 @@ logger = logging.getLogger(__name__)
 def sanitize_dict(d: dict) -> dict:
     """
     Recursively redacts sensitive keys in the given dictionary.
+    Guarantees no mutation of the original object by returning a new dictionary.
+    Case-insensitive, covers nested lists and dictionaries, and matches partial/sub-keys.
     """
     if not isinstance(d, dict):
         return d
     
     redacted_keys = {
         'password', 'password_confirmation', 'token', 'access', 'refresh', 
-        'usr_clave_hash', 'ver_token_hash', 'authorization', 'cookie'
+        'usr_clave_hash', 'ver_token_hash', 'authorization', 'cookie',
+        'access_token', 'refresh_token'
     }
     
+    def matches_sensitive(key: str) -> bool:
+        if not isinstance(key, str):
+            return False
+        k_lower = key.lower()
+        if k_lower in redacted_keys:
+            return True
+        for red in {'password', 'token', 'auth', 'cookie'}:
+            if red in k_lower:
+                return True
+        return False
+
     sanitized = {}
     for k, v in d.items():
         if isinstance(v, dict):
             sanitized[k] = sanitize_dict(v)
         elif isinstance(v, list):
             sanitized[k] = [sanitize_dict(item) if isinstance(item, dict) else item for item in v]
-        elif isinstance(k, str) and k.lower() in redacted_keys:
+        elif matches_sensitive(k):
             sanitized[k] = "[REDACTED]"
         else:
             sanitized[k] = v
@@ -58,6 +73,7 @@ class AuditService:
     ) -> Auditoria:
         """
         Validates, sanitizes, and records an audit log to pdg.aud_auditoria.
+        Saves under an independent savepoint to prevent aborting active transactions.
         Handles errors gracefully to prevent breaking transaction-critical paths unless throw_on_error is True.
         """
         try:
@@ -105,7 +121,13 @@ class AuditService:
                 agente_usuario=user_agent,
                 proceso_origen=proceso_origen
             )
-            audit_log.save(using='periodico_db')
+            
+            try:
+                with transaction.atomic(using='periodico_db', savepoint=True):
+                    audit_log.save(using='periodico_db')
+            except Exception as save_err:
+                raise save_err
+                
             return audit_log
             
         except Exception as e:

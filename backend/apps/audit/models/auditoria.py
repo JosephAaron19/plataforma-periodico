@@ -5,7 +5,7 @@ class Auditoria(models.Model):
     usuario = models.ForeignKey(
         'accounts.Usuario',
         db_column='usr_id',
-        on_delete=models.SET_NULL,
+        on_delete=models.DO_NOTHING,
         null=True,
         blank=True,
         related_name='auditorias'
