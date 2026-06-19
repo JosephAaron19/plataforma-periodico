@@ -74,6 +74,11 @@ class CompanyInvitationResendView(generics.GenericAPIView):
         ip_address = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT')
         
+        from apps.authorization.services.invitation_resend_service import (
+            RedisUnavailableException,
+            RateLimitExceededException
+        )
+        
         try:
             invitation = resend_company_invitation(
                 invitation_id=invitation_id,
@@ -81,6 +86,20 @@ class CompanyInvitationResendView(generics.GenericAPIView):
                 solicitante=request.user,
                 ip_address=ip_address,
                 user_agent=user_agent
+            )
+        except RedisUnavailableException as e:
+            return Response(
+                {"detail": "Servicio de control de frecuencia temporalmente no disponible. Inténtelo más tarde."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except RateLimitExceededException as e:
+            headers = {}
+            if e.retry_after is not None:
+                headers["Retry-After"] = str(e.retry_after)
+            return Response(
+                {"detail": "Has alcanzado el límite máximo de reenvíos para esta invitación hoy. Inténtelo más tarde."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers=headers
             )
         except DjangoValidationError as e:
             raise DRFValidationError(e.message_dict if hasattr(e, 'message_dict') else e.messages)

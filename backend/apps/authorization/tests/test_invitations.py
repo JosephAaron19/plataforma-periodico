@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory, force_authenticate
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 from contextlib import contextmanager
 from datetime import timedelta
 from django.utils import timezone
@@ -515,8 +515,10 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             self.assertIsNotNone(res)
             mock_user_save.assert_called_once()
             mock_profile_save.assert_called_once()
-            mock_on_commit.assert_called_once()
-            mock_notif_save.assert_called_once()
+            # Verify on_commit receives using="periodico_db"
+            mock_on_commit.assert_called_once_with(ANY, using='periodico_db')
+            # Verify the notification is saved with using="periodico_db"
+            mock_notif_save.assert_called_once_with(using='periodico_db')
 
     # 10.5.2 Rollback does not fire notification
     @patch('apps.authorization.services.invitation_accept_service.transaction.on_commit')
@@ -627,18 +629,399 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
         # Mock invitation sent 70 seconds ago (cooldown > 60s)
         mock_inv = MagicMock(spec=InvitacionUsuario)
         mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'test@example.com'
         mock_inv.fecha_aceptacion = None
         mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
         mock_inv_using.return_value.get.return_value = mock_inv
         
         # We patch send_company_invitation_email_task to avoid celery queueing
-        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+        with patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url') as mock_redis_from_url, \
+             patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
              patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
              patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=lambda f, using=None: None), \
              patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+            mock_redis_client = MagicMock()
+            mock_redis_from_url.return_value = mock_redis_client
+            mock_redis_client.ping.return_value = True
+            mock_redis_client.eval.return_value = 1
+            
             res = resend_company_invitation(
                 invitation_id="inv-123",
                 empresa_id=1,
                 solicitante=self.user
             )
             self.assertEqual(res.estado, 'REENVIADA')
+
+    # 10.9 Redis rate limit success and error scenarios
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    def test_resend_invitation_redis_flow(self, mock_inv_using, mock_redis_from_url):
+        from apps.authorization.services.invitation_resend_service import (
+            resend_company_invitation,
+            RateLimitExceededException,
+            RedisUnavailableException
+        )
+        
+        # Mock Redis Client and connection ping
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        
+        # Mock invitation
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'testlimit@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70) # cooldown passed
+        mock_inv_using.return_value.get.return_value = mock_inv
+
+        # Helper mocks
+        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=lambda f, using=None: None), \
+             patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+
+            # Scenario A: First resend (eval returns 1)
+            mock_redis_client.eval.return_value = 1
+            mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+            res = resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            self.assertEqual(res.estado, 'REENVIADA')
+            mock_redis_client.eval.assert_called_once()
+            
+            # Verify the key has f"invitation:resend:1:inv-123:" and email hash without raw email
+            redis_call_key = mock_redis_client.eval.call_args[0][2]
+            self.assertIn("invitation:resend:1:inv-123:", redis_call_key)
+            self.assertNotIn("testlimit@example.com", redis_call_key)
+            
+            # Scenario B: Fifth resend (eval returns 5, which is permitted)
+            mock_redis_client.eval.reset_mock()
+            mock_redis_client.eval.return_value = 5
+            mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+            res = resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            self.assertEqual(res.estado, 'REENVIADA')
+            mock_redis_client.eval.assert_called_once()
+            
+            # Scenario C: Sixth resend (eval returns 0, limit exceeded)
+            mock_redis_client.eval.reset_mock()
+            mock_redis_client.eval.return_value = 0
+            mock_redis_client.ttl.return_value = 50000
+            mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+            
+            with self.assertRaises(RateLimitExceededException) as ctx:
+                resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            self.assertEqual(ctx.exception.retry_after, 50000)
+            
+            # Scenario D: Redis unavailable (ping fails)
+            mock_redis_client.ping.side_effect = Exception("Redis down")
+            mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+            with self.assertRaises(RedisUnavailableException):
+                resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+                
+            # Reset side effect
+            mock_redis_client.ping.side_effect = None
+
+    # 10.10 Postgres failure decrements/releases Redis reservation
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    def test_resend_invitation_postgres_failure_releases_redis(self, mock_inv_using, mock_redis_from_url):
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.eval.return_value = 1 # Slot successfully reserved in Redis
+        
+        # Mock invitation
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'test@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        # Simulate Postgres exception inside transaction.atomic (e.g. database connection timeout)
+        def postgres_fail_save(*args, **kwargs):
+            raise Exception("Postgres connection timeout")
+        mock_inv.save.side_effect = postgres_fail_save
+        
+        with patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=postgres_fail_save), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=lambda f, using=None: f()):
+             
+            with self.assertRaises(Exception) as ctx:
+                resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            self.assertIn("Postgres connection timeout", str(ctx.exception))
+            
+            # Redis counter must be decremented on Postgres error
+            mock_redis_client.decr.assert_called_once()
+
+    # 10.11 Celery failure after commit does NOT release Redis reservation
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    def test_resend_invitation_celery_failure_does_not_release_redis(self, mock_inv_using, mock_redis_from_url):
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.eval.return_value = 1
+        
+        # Mock invitation
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'test@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        callbacks = []
+        def store_callback(func, using=None):
+            callbacks.append(func)
+            
+        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task.delay', side_effect=Exception("Celery Broker Offline")), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=store_callback), \
+             patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+             
+            res = resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            self.assertEqual(res.estado, 'REENVIADA')
+            
+            # Now, simulate Django running the on_commit callbacks post-commit
+            self.assertEqual(len(callbacks), 1)
+            with self.assertRaises(Exception) as ctx:
+                callbacks[0]()
+            self.assertIn("Celery Broker Offline", str(ctx.exception))
+            
+            # The reservation in Redis must NOT be released, since the invitation was already committed to DB
+            mock_redis_client.decr.assert_not_called()
+
+    # 10.12 View handles custom rate limit exceptions returning HTTP 503 and 429
+    @patch('apps.authorization.views.invitations.HasCompanyPermission.has_permission', return_value=True)
+    @patch('apps.authorization.views.invitations.resend_company_invitation')
+    def test_resend_invitation_views_http_responses(self, mock_resend, mock_has_perm):
+        from apps.authorization.services.invitation_resend_service import (
+            RedisUnavailableException,
+            RateLimitExceededException
+        )
+        inv_id = str(uuid.uuid4())
+        
+        # Scenario A: 503 Service Unavailable when Redis is down
+        mock_resend.side_effect = RedisUnavailableException("Redis is down")
+        request = self.factory.post(f'/api/v1/companies/1/invitations/{inv_id}/resend/', {})
+        force_authenticate(request, user=self.user)
+        view = CompanyInvitationResendView.as_view()
+        response = view(request, emp_id=1, invitation_id=inv_id)
+        
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Servicio de control de frecuencia", response.data['detail'])
+        
+        # Scenario B: 429 Too Many Requests when limit is reached
+        mock_resend.side_effect = RateLimitExceededException(retry_after=12345)
+        response = view(request, emp_id=1, invitation_id=inv_id)
+        
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers.get("Retry-After"), "12345")
+        self.assertIn("límite máximo de reenvíos", response.data['detail'])
+
+    # 10.13 Redis limit and 24-hour TTL arguments verification
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    def test_resend_invitation_redis_ttl_and_limit(self, mock_inv_using, mock_redis_from_url):
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.eval.return_value = 1
+        
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'ttltest@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=lambda f, using=None: None), \
+             patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+             
+            resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            
+            # Assert eval was called with limit=5 and TTL=86400 (24 hours)
+            mock_redis_client.eval.assert_called_once()
+            args, kwargs = mock_redis_client.eval.call_args
+            self.assertEqual(args[1], 1)
+            self.assertEqual(args[3], 5)
+            self.assertEqual(args[4], 86400)
+
+    # 10.14 TTL no reiniciado simulation
+    def test_lua_script_simulation_no_ttl_restart(self):
+        # Simulate the Lua script logic in python to verify that TTL is not restarted on subsequent calls
+        redis_store = {}
+        redis_ttl = {}
+        
+        def run_lua_sim(key, limit, ttl):
+            current = redis_store.get(key)
+            if current is not None:
+                if current >= limit:
+                    return 0
+                else:
+                    redis_store[key] = current + 1
+                    return redis_store[key]
+            else:
+                redis_store[key] = 1
+                redis_ttl[key] = ttl
+                return 1
+        
+        # First call (new key)
+        res1 = run_lua_sim("key1", 5, 86400)
+        self.assertEqual(res1, 1)
+        self.assertEqual(redis_ttl["key1"], 86400)
+        
+        # Second call (existing key) - simulated passage of time, TTL is now 50000
+        redis_ttl["key1"] = 50000
+        res2 = run_lua_sim("key1", 5, 86400)
+        self.assertEqual(res2, 2)
+        # TTL should not be restarted, remaining at 50000
+        self.assertEqual(redis_ttl["key1"], 50000)
+
+    # 10.15 Concurrencia simulada safety
+    def test_resend_invitation_concurrency_safe_lua(self):
+        """
+        Verify that the rate limiter performs a single atomic script evaluation
+        instead of vulnerability-prone GET/SET operations.
+        """
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        with patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url') as mock_redis_from_url:
+            mock_redis_client = MagicMock()
+            mock_redis_from_url.return_value = mock_redis_client
+            mock_redis_client.ping.return_value = True
+            
+            mock_inv = MagicMock(spec=InvitacionUsuario)
+            mock_inv.estado = 'PENDIENTE'
+            mock_inv.correo = 'race@example.com'
+            mock_inv.fecha_aceptacion = None
+            mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+            
+            with patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using') as mock_inv_using, \
+                 patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+                 patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+                 patch('apps.authorization.services.invitation_resend_service.transaction.on_commit'), \
+                 patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+                 
+                mock_inv_using.return_value.get.return_value = mock_inv
+                mock_redis_client.eval.return_value = 1
+                
+                resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+                
+                mock_redis_client.eval.assert_called_once()
+                mock_redis_client.get.assert_not_called()
+                mock_redis_client.set.assert_not_called()
+
+    # 10.16 No token regeneration when limit is exhausted
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    @patch('apps.authorization.services.invitation_resend_service.secrets.token_urlsafe')
+    def test_resend_invitation_no_token_regeneration_when_limit_exhausted(
+        self, mock_token_urlsafe, mock_inv_using, mock_redis_from_url
+    ):
+        from apps.authorization.services.invitation_resend_service import (
+            resend_company_invitation,
+            RateLimitExceededException
+        )
+        
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.eval.return_value = 0  # Limit reached
+        mock_redis_client.ttl.return_value = 100
+        
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'limit@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        with patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+            with self.assertRaises(RateLimitExceededException):
+                resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+                
+            mock_token_urlsafe.assert_not_called()
+            mock_inv.save.assert_not_called()
+
+    # 10.17 on_commit uses periodico_db for resending
+    @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    @patch('apps.authorization.services.invitation_resend_service.transaction.on_commit')
+    def test_resend_invitation_on_commit_uses_correct_db(self, mock_on_commit, mock_inv_using, mock_redis_from_url):
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        mock_redis_client = MagicMock()
+        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.eval.return_value = 1
+        
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'dbtest@example.com'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+             patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+             
+            resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
+            mock_on_commit.assert_called_once_with(ANY, using='periodico_db')
+
+    # 10.18 Accept invitation system notification registered on_commit and not executed before
+    @patch('apps.authorization.services.invitation_accept_service.transaction.on_commit')
+    @patch('apps.authorization.services.invitation_accept_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.authorization.services.invitation_accept_service.InvitacionUsuario.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.Usuario.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresa.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresaRol.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresa.save')
+    @patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresaRol.save')
+    @patch('apps.authorization.services.invitation_accept_service.RolHistorial.save')
+    @patch('apps.authorization.services.invitation_accept_service.Notificacion.save')
+    @patch('apps.authorization.services.invitation_accept_service.AuditService.record_event')
+    def test_accept_invitation_on_commit_not_executed_before_commit(
+        self, mock_audit, mock_notif_save, mock_historial, mock_uer_save, mock_uep_save,
+        mock_uer_using, mock_uep_using, mock_user_using, mock_inv_using, mock_atomic, mock_on_commit
+    ):
+        from apps.authorization.services.invitation_accept_service import accept_company_invitation
+        
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.correo = 'newuser@example.com'
+        mock_inv.fecha_expiracion = timezone.now() + timedelta(hours=24)
+        mock_inv.rol = Rol(codigo="EDITOR", nombre="Editor")
+        mock_inv.empresa = self.company
+        mock_inv.invitado_por = self.user
+        mock_inv_using.return_value.select_for_update.return_value.get.return_value = mock_inv
+        
+        mock_user_using.return_value.filter.return_value.first.return_value = None
+        mock_uep_using.return_value.filter.return_value.exists.return_value = False
+        mock_uep_using.return_value.filter.return_value.first.return_value = None
+        mock_uer_using.return_value.filter.return_value.first.return_value = None
+        
+        registered_callbacks = []
+        mock_on_commit.side_effect = lambda func, using=None: registered_callbacks.append(func)
+        
+        with patch('apps.accounts.models.usuario.Usuario.save'), \
+             patch('apps.accounts.models.perfil.Perfil.save'):
+             
+            accept_company_invitation(
+                plain_token="token-abc",
+                password="strongpassword123",
+                nombres="New",
+                apellidos="User"
+            )
+            
+            self.assertEqual(len(registered_callbacks), 1)
+            mock_notif_save.assert_not_called()
+

@@ -1,10 +1,12 @@
 import logging
 import secrets
 import hashlib
+import redis
 from datetime import timedelta
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.conf import settings
 
 from apps.accounts.models.usuario import Usuario
 from apps.authorization.models.invitacion_usuario import InvitacionUsuario
@@ -15,6 +17,13 @@ from apps.audit.services.audit_service import AuditService
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
 
 logger = logging.getLogger(__name__)
+
+class RedisUnavailableException(Exception):
+    pass
+
+class RateLimitExceededException(Exception):
+    def __init__(self, retry_after=None):
+        self.retry_after = retry_after
 
 def resend_company_invitation(
     *,
@@ -52,28 +61,87 @@ def resend_company_invitation(
     if invitacion.fecha_aceptacion is not None:
         raise ValidationError("La invitación ya ha sido aceptada.")
 
-    # 5. Rate limiting checks using physical database fields
+    # 5. Cooldown checks using physical database fields
     now = timezone.now()
-    
-    # 5a. Minimum 60 seconds interval between resends
     if invitacion.fecha_envio and (now - invitacion.fecha_envio) < timedelta(seconds=60):
         raise ValidationError("Debe esperar al menos 60 segundos entre reenvíos.")
 
-    # Note: The database table 'pdg.inv_invitacion_usuario' does not contain a resend counter
-    # or multiple timestamp columns. Thus, enforcing "maximum 5 resends in 24 hours"
-    # using strictly physical table fields is not natively possible. We enforce the 
-    # minimum 60-second interval here, and propose Redis/token-bucket caching as a future scalability improvement.
+    # 5b. Redis rate limiting checks (max 5 resends in 24 hours)
+    email_clean = invitacion.correo.strip().lower()
+    email_hash = hashlib.sha256(email_clean.encode('utf-8')).hexdigest()
+    redis_key = f"invitation:resend:{empresa_id}:{invitation_id}:{email_hash}"
+    
+    try:
+        r = redis.Redis.from_url(settings.CELERY_BROKER_URL, socket_timeout=3)
+        r.ping()
+    except Exception as re:
+        logger.warning(f"Error de conexion con Redis al verificar rate limit de reenvio: {str(re)}")
+        raise RedisUnavailableException("Servicio de rate limit no disponible.")
+
+    # Atomic evaluation using Lua script to prevent race conditions
+    lua_script = """
+    local key = KEYS[1]
+    local limit = tonumber(ARGV[1])
+    local ttl = tonumber(ARGV[2])
+    
+    local current = redis.call('get', key)
+    if current then
+        if tonumber(current) >= limit then
+            return 0
+        else
+            return redis.call('incr', key)
+        end
+    else
+        redis.call('set', key, 1)
+        redis.call('expire', key, ttl)
+        return 1
+    end
+    """
+    
+    try:
+        # Limit is 5 resends, TTL is 24 hours (86400 seconds)
+        eval_res = r.eval(lua_script, 1, redis_key, 5, 86400)
+    except Exception as re:
+        logger.warning(f"Error al ejecutar script Lua en Redis: {str(re)}")
+        raise RedisUnavailableException("Servicio de rate limit no disponible.")
+        
+    if eval_res == 0:
+        # Get remaining TTL to compute Retry-After
+        try:
+            ttl = r.ttl(redis_key)
+            retry_after = max(0, ttl) if ttl > 0 else 86400
+        except Exception:
+            retry_after = 86400
+        # Register limited resend event in Audit
+        AuditService.record_event(
+            usuario=solicitante,
+            emp_id=empresa_id,
+            modulo=AuditoriaModulo.M04,
+            accion='REENVIO_VERIFICACION_LIMITADO',
+            entidad='InvitacionUsuario',
+            entidad_id=str(invitacion.id),
+            valores_anteriores={"estado": invitacion.estado},
+            valores_nuevos=None,
+            resultado=AuditoriaResultado.RECHAZADO,
+            motivo='Límite de 5 reenvíos en 24 horas superado',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            throw_on_error=False
+        )
+        raise RateLimitExceededException(retry_after=retry_after)
 
     # 6. Regenerate token
     plain_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(plain_token.encode('utf-8')).hexdigest()
 
     # 7. Update fields (physically updating fecha_envio to track the last sent timestamp)
+    estado_anterior = invitacion.estado
     invitacion.token_hash = token_hash
     invitacion.fecha_expiracion = now + timedelta(hours=72)
     invitacion.fecha_envio = now
     invitacion.estado = 'REENVIADA'
 
+    redis_reserved = True
     try:
         with transaction.atomic(using='periodico_db'):
             invitacion.save(using='periodico_db')
@@ -87,7 +155,7 @@ def resend_company_invitation(
                 entidad='InvitacionUsuario',
                 entidad_id=str(invitacion.id),
                 valores_anteriores={
-                    "estado": invitacion.estado
+                    "estado": estado_anterior
                 },
                 valores_nuevos={
                     "estado": "REENVIADA",
@@ -109,6 +177,14 @@ def resend_company_invitation(
         return invitacion
 
     except Exception as e:
+        # Liberar la reserva en Redis si falla la transacción PostgreSQL
+        if redis_reserved:
+            try:
+                # Decrement the counter
+                r.decr(redis_key)
+            except Exception as re:
+                logger.error(f"Error al liberar reserva de Redis tras fallo DB: {str(re)}")
+        
         logger.error(f"Error resending invitation {invitation_id}: {str(e)}")
         if isinstance(e, ValidationError):
             raise e
