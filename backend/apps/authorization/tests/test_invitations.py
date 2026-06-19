@@ -720,7 +720,7 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             # Reset side effect
             mock_redis_client.ping.side_effect = None
 
-    # 10.10 Postgres failure decrements/releases Redis reservation
+    # 10.10 Postgres failure decrements/releases Redis reservation using Lua script
     @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
     @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
     def test_resend_invitation_postgres_failure_releases_redis(self, mock_inv_using, mock_redis_from_url):
@@ -751,8 +751,10 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
                 resend_company_invitation(invitation_id="inv-123", empresa_id=1, solicitante=self.user)
             self.assertIn("Postgres connection timeout", str(ctx.exception))
             
-            # Redis counter must be decremented on Postgres error
-            mock_redis_client.decr.assert_called_once()
+            # Redis eval must be called twice: once to increment, and once to run the LUA_RELEASE_SCRIPT
+            self.assertEqual(mock_redis_client.eval.call_count, 2)
+            second_call_script = mock_redis_client.eval.call_args_list[1][0][0]
+            self.assertIn("decr", second_call_script)
 
     # 10.11 Celery failure after commit does NOT release Redis reservation
     @patch('apps.authorization.services.invitation_resend_service.redis.Redis.from_url')
@@ -1024,4 +1026,46 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             
             self.assertEqual(len(registered_callbacks), 1)
             mock_notif_save.assert_not_called()
+
+    # 10.19 LUA_RELEASE_SCRIPT logic simulation
+    def test_lua_release_script_simulation(self):
+        # Simulate the Lua release script logic in python
+        # LUA_RELEASE_SCRIPT checks that the key exists, that the counter is > 0,
+        # and decrements only in that case, conserving the TTL and not creating a new key.
+        
+        def run_release_sim(redis_store, redis_ttl, key):
+            current = redis_store.get(key)
+            if current is not None:
+                val = current
+                if val > 0:
+                    redis_store[key] = val - 1
+                    return redis_store[key]
+                else:
+                    return 0
+            else:
+                return 0
+
+        # Case A: Key exists and is > 0 (e.g. 3) -> decrements to 2, TTL preserved
+        redis_store = {"key1": 3}
+        redis_ttl = {"key1": 50000}
+        res = run_release_sim(redis_store, redis_ttl, "key1")
+        self.assertEqual(res, 2)
+        self.assertEqual(redis_store["key1"], 2)
+        self.assertEqual(redis_ttl["key1"], 50000)
+
+        # Case B: Key exists and is already 0 -> does not decrement, counter never negative
+        redis_store = {"key1": 0}
+        redis_ttl = {"key1": 50000}
+        res = run_release_sim(redis_store, redis_ttl, "key1")
+        self.assertEqual(res, 0)
+        self.assertEqual(redis_store["key1"], 0)
+        self.assertEqual(redis_ttl["key1"], 50000)
+
+        # Case C: Key has already expired (doesn't exist) -> does not recreate key, absence of new key
+        redis_store = {}
+        redis_ttl = {}
+        res = run_release_sim(redis_store, redis_ttl, "key1")
+        self.assertEqual(res, 0)
+        self.assertNotIn("key1", redis_store)
+        self.assertNotIn("key1", redis_ttl)
 

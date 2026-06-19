@@ -18,6 +18,24 @@ from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResu
 
 logger = logging.getLogger(__name__)
 
+# Script Lua para liberar la reserva de forma atómica.
+# Comprueba que la clave existe, que el contador es mayor que cero, y decrementa solo en ese caso,
+# conservando el TTL actual y sin crear una clave nueva ni permitir valores negativos.
+LUA_RELEASE_SCRIPT = """
+local key = KEYS[1]
+local current = redis.call('get', key)
+if current then
+    local val = tonumber(current)
+    if val > 0 then
+        return redis.call('decr', key)
+    else
+        return 0
+    end
+else
+    return 0
+end
+"""
+
 class RedisUnavailableException(Exception):
     pass
 
@@ -66,7 +84,7 @@ def resend_company_invitation(
     if invitacion.fecha_envio and (now - invitacion.fecha_envio) < timedelta(seconds=60):
         raise ValidationError("Debe esperar al menos 60 segundos entre reenvíos.")
 
-    # 5b. Redis rate limiting checks (max 5 resends in 24 hours)
+    # 5b. Redis rate limiting checks (max 5 resends in 24 hours en ventana fija, el TTL original no se reinicia)
     email_clean = invitacion.correo.strip().lower()
     email_hash = hashlib.sha256(email_clean.encode('utf-8')).hexdigest()
     redis_key = f"invitation:resend:{empresa_id}:{invitation_id}:{email_hash}"
@@ -78,7 +96,8 @@ def resend_company_invitation(
         logger.warning(f"Error de conexion con Redis al verificar rate limit de reenvio: {str(re)}")
         raise RedisUnavailableException("Servicio de rate limit no disponible.")
 
-    # Atomic evaluation using Lua script to prevent race conditions
+    # Atomic evaluation using Lua script to prevent race conditions.
+    # Límite Redis en ventana fija de 24 horas iniciada con el primer reenvío, no ventana móvil.
     lua_script = """
     local key = KEYS[1]
     local limit = tonumber(ARGV[1])
@@ -180,8 +199,8 @@ def resend_company_invitation(
         # Liberar la reserva en Redis si falla la transacción PostgreSQL
         if redis_reserved:
             try:
-                # Decrement the counter
-                r.decr(redis_key)
+                # Usar script Lua atómico para liberar la reserva de forma segura
+                r.eval(LUA_RELEASE_SCRIPT, 1, redis_key)
             except Exception as re:
                 logger.error(f"Error al liberar reserva de Redis tras fallo DB: {str(re)}")
         
