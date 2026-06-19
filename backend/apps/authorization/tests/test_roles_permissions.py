@@ -405,12 +405,15 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
         self.assertEqual(len(data), 3)
         
         # Verify origins mapping
-        crear_data = next(x for x in data if x['code'] == "EDICION_CREAR")
-        publicar_data = next(x for x in data if x['code'] == "EDICION_PUBLICAR")
-        eliminar_data = next(x for x in data if x['code'] == "EDICION_ELIMINAR")
-        self.assertEqual(crear_data['origen'], 'ROL')
-        self.assertEqual(publicar_data['origen'], 'CONCESION_DIRECTA')
-        self.assertEqual(eliminar_data['origen'], 'REVOCACION_DIRECTA')
+        crear_data = next(x for x in data if x['permission_code'] == "EDICION_CREAR")
+        publicar_data = next(x for x in data if x['permission_code'] == "EDICION_PUBLICAR")
+        eliminar_data = next(x for x in data if x['permission_code'] == "EDICION_ELIMINAR")
+        self.assertEqual(crear_data['origin'], 'ROL')
+        self.assertTrue(crear_data['granted'])
+        self.assertEqual(publicar_data['origin'], 'CONCESION_DIRECTA')
+        self.assertTrue(publicar_data['granted'])
+        self.assertEqual(eliminar_data['origin'], 'REVOCACION_DIRECTA')
+        self.assertFalse(eliminar_data['granted'])
 
     # 8. POST /api/v1/companies/{emp_id}/members/{uep_id}/permissions/grant/
     @patch('apps.authorization.services.direct_permission_grant_service.Permiso.objects.using')

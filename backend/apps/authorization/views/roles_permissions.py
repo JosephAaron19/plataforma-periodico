@@ -235,9 +235,10 @@ class MemberEffectivePermissionListView(generics.GenericAPIView):
         for perm in active_permissions:
             origen = 'CONCESION_DIRECTA' if perm.codigo in direct_concedes else 'ROL'
             data.append({
-                'code': perm.codigo,
+                'permission_code': perm.codigo,
                 'nombre': perm.nombre,
-                'origen': origen
+                'granted': True,
+                'origin': origen
             })
 
         # 4. Include explicit revocations as REVOCACION_DIRECTA
@@ -248,9 +249,10 @@ class MemberEffectivePermissionListView(generics.GenericAPIView):
             )
             for perm in revoked_permissions:
                 data.append({
-                    'code': perm.codigo,
+                    'permission_code': perm.codigo,
                     'nombre': perm.nombre,
-                    'origen': 'REVOCACION_DIRECTA'
+                    'granted': False,
+                    'origin': 'REVOCACION_DIRECTA'
                 })
 
         serializer = self.get_serializer(data, many=True)
