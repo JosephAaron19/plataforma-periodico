@@ -15,6 +15,7 @@ from apps.authorization.models.rol_historial import RolHistorial
 from apps.notifications.models.notificacion import Notificacion
 from apps.audit.services.audit_service import AuditService
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
+from apps.plans.services.plan_limit_service import check_user_limit
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,17 @@ def accept_company_invitation(
             ).exists()
             if active_rel:
                 raise ValidationError("Ya eres un miembro activo de esta empresa.")
+
+            # Check user limit for the company plan
+            uep_exists = UsuarioEmpresa.objects.using('periodico_db').filter(
+                usuario=user,
+                empresa=invitacion.empresa,
+                estado__in=['ACTIVO', 'PENDIENTE', 'SUSPENDIDO']
+            ).exists()
+            if not uep_exists:
+                limit_result = check_user_limit(invitacion.empresa)
+                if not limit_result["allowed"]:
+                    raise ValidationError(limit_result["message"])
 
             # 5. Create or reactivate UsuarioEmpresa relationship
             uep = UsuarioEmpresa.objects.using('periodico_db').filter(

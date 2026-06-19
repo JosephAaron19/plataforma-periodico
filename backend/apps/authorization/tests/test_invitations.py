@@ -70,6 +70,16 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             p_sa.start()
             p_cp.start()
 
+        # Patch check_user_limit to prevent database queries during SimpleTestCase
+        for m in [
+            'apps.authorization.services.invitation_create_service',
+            'apps.authorization.services.invitation_accept_service',
+            'apps.authorization.services.member_reactivate_service',
+        ]:
+            p_cul = patch(f'{m}.check_user_limit', return_value={"allowed": True, "limit": 10, "used": 1})
+            self.patchers.append(p_cul)
+            p_cul.start()
+
     def tearDown(self):
         for p in self.patchers:
             p.stop()

@@ -10,6 +10,7 @@ from apps.authorization.models.rol_historial import RolHistorial
 from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
 from apps.audit.services.audit_service import AuditService
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
+from apps.plans.services.plan_limit_service import check_user_limit
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,11 @@ def reactivate_company_member(
 
             if uep.estado != 'SUSPENDIDO':
                 raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede reactivar.")
+
+            # Check user limit for the company plan
+            limit_result = check_user_limit(uep.empresa)
+            if not limit_result["allowed"]:
+                raise ValidationError(limit_result["message"])
 
             # Save previous state
             estado_anterior = uep.estado
