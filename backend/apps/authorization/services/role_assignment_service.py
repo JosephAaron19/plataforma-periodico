@@ -46,6 +46,37 @@ def assign_role_to_member(
     if rol.tipo == TipoRol.PLATAFORMA or rol.codigo == 'SUPERADMIN':
         raise ValidationError({"role_code": "No se pueden asignar roles del ámbito de plataforma."})
 
+    # Privilege escalation check
+    from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
+    from apps.authorization.models.rol_permiso import RolPermiso
+    if not is_platform_superadmin(solicitante):
+        role_perms = set(
+            RolPermiso.objects.using('periodico_db').filter(
+                rol=rol,
+                estado=True,
+                permiso__estado=EstadoRol.ACTIVO
+            ).values_list('permiso__codigo', flat=True)
+        )
+        requester_perms = calculate_effective_permissions(solicitante.id, emp_id)
+        missing_perms = role_perms - requester_perms
+        if missing_perms:
+            AuditService.record_event(
+                usuario=solicitante,
+                emp_id=emp_id,
+                modulo=AuditoriaModulo.M04,
+                accion='ESCALAMIENTO_PRIVILEGIOS_DENEGADO',
+                entidad='UsuarioEmpresaRol',
+                entidad_id=None,
+                valores_anteriores=None,
+                valores_nuevos={"requested_role": rol.codigo},
+                resultado=AuditoriaResultado.RECHAZADO,
+                motivo=f"Intento de asignar rol {rol.codigo} que contiene permisos que el solicitante no posee.",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                throw_on_error=False
+            )
+            raise ValidationError({"role_code": "No puedes asignar un rol que contenga permisos que tú mismo no posees."})
+
     # 2. Check dates validity
     if start_date and end_date and start_date > end_date:
         raise ValidationError({"end_date": "La fecha de finalización debe ser posterior a la fecha de inicio."})

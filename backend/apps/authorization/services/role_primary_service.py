@@ -1,5 +1,5 @@
 import logging
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -45,6 +45,39 @@ def set_member_primary_role(
             is_current = (uer.fecha_inicio <= now) and (uer.fecha_fin is None or uer.fecha_fin >= now)
             if not is_active or not is_current:
                 raise ValidationError("El rol especificado debe estar activo y vigente para ser establecido como principal.")
+
+            # Privilege escalation check for changing primary role
+            from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
+            from apps.authorization.models.rol_permiso import RolPermiso
+            from apps.authorization.constants import EstadoRol
+            
+            if not is_platform_superadmin(solicitante):
+                role_perms = set(
+                    RolPermiso.objects.using('periodico_db').filter(
+                        rol=uer.rol,
+                        estado=True,
+                        permiso__estado=EstadoRol.ACTIVO
+                    ).values_list('permiso__codigo', flat=True)
+                )
+                requester_perms = calculate_effective_permissions(solicitante.id, emp_id)
+                missing_perms = role_perms - requester_perms
+                if missing_perms:
+                    AuditService.record_event(
+                        usuario=solicitante,
+                        emp_id=emp_id,
+                        modulo=AuditoriaModulo.M04,
+                        accion='ESCALAMIENTO_PRIVILEGIOS_DENEGADO',
+                        entidad='UsuarioEmpresaRol',
+                        entidad_id=str(uer.id),
+                        valores_anteriores=None,
+                        valores_nuevos={"requested_role": uer.rol.codigo},
+                        resultado=AuditoriaResultado.RECHAZADO,
+                        motivo=f"Intento de cambiar rol principal a {uer.rol.codigo} que contiene permisos que el solicitante no posee.",
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        throw_on_error=False
+                    )
+                    raise ValidationError("No puedes cambiar al miembro a un rol principal que contiene permisos que tú mismo no posees.")
 
             if uer.es_principal:
                 # Already principal, nothing to do
@@ -110,6 +143,9 @@ def set_member_primary_role(
 
         return uer
 
+    except IntegrityError as e:
+        logger.error(f"Error de integridad al establecer rol principal: {str(e)}")
+        raise ValidationError(f"Error de integridad al establecer rol principal: {str(e)}")
     except Exception as e:
         logger.error(f"Error setting primary role assignment {uer_id}: {str(e)}")
         if isinstance(e, ValidationError):

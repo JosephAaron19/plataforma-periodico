@@ -65,6 +65,8 @@ def suspend_company_member(
                 # Lock and count other active administrators in this company to prevent race conditions
                 other_admins = UsuarioEmpresaRol.objects.using('periodico_db').select_for_update().filter(
                     usuario_empresa__empresa_id=empresa_id,
+                    usuario_empresa__empresa__estado='ACTIVA',
+                    usuario_empresa__empresa__eliminado=False,
                     rol__codigo='ADMIN_EMPRESA',
                     estado='ACTIVO',
                     fecha_inicio__lte=now,

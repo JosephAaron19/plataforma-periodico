@@ -56,6 +56,30 @@ def remove_direct_permission_exception(
             except UsuarioEmpresaPermiso.DoesNotExist:
                 raise ValidationError("El miembro no tiene una excepción activa para este permiso.")
 
+            # Privilege escalation check: if removing a revocation exception (tipo='REVOCAR'),
+            # the solicitor must possess the permission.
+            if uepr.tipo == 'REVOCAR':
+                from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
+                if not is_platform_superadmin(solicitante):
+                    requester_perms = calculate_effective_permissions(solicitante.id, emp_id)
+                    if permission_code not in requester_perms:
+                        AuditService.record_event(
+                            usuario=solicitante,
+                            emp_id=emp_id,
+                            modulo=AuditoriaModulo.M04,
+                            accion='ESCALAMIENTO_PRIVILEGIOS_DENEGADO',
+                            entidad='UsuarioEmpresaPermiso',
+                            entidad_id=str(uepr.id),
+                            valores_anteriores=None,
+                            valores_nuevos={"requested_permission": permission_code},
+                            resultado=AuditoriaResultado.RECHAZADO,
+                            motivo=f"Intento de retirar revocacion del permiso {permission_code} que no posee.",
+                            ip_address=ip_address,
+                            user_agent=user_agent,
+                            throw_on_error=False
+                        )
+                        raise ValidationError("No puedes retirar la revocación de un permiso que tú mismo no posees.")
+
             # 4. Logical delete/inactivation
             tipo_anterior = uepr.tipo
             uepr.estado = False

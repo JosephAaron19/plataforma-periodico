@@ -221,9 +221,14 @@ class MemberEffectivePermissionListView(generics.GenericAPIView):
         )
 
         # 3. Determine origin for each permission (concession vs inherited role)
+        direct_permissions = get_user_direct_permissions(uep.usuario_id, emp_id)
         direct_concedes = {
-            dp.permiso.codigo for dp in get_user_direct_permissions(uep.usuario_id, emp_id)
+            dp.permiso.codigo for dp in direct_permissions
             if dp.tipo == 'CONCEDER'
+        }
+        direct_revokes = {
+            dp.permiso.codigo for dp in direct_permissions
+            if dp.tipo == 'REVOCAR'
         }
 
         data = []
@@ -234,6 +239,19 @@ class MemberEffectivePermissionListView(generics.GenericAPIView):
                 'nombre': perm.nombre,
                 'origen': origen
             })
+
+        # 4. Include explicit revocations as REVOCACION_DIRECTA
+        if direct_revokes:
+            revoked_permissions = Permiso.objects.using('periodico_db').filter(
+                estado='ACTIVO',
+                codigo__in=direct_revokes
+            )
+            for perm in revoked_permissions:
+                data.append({
+                    'code': perm.codigo,
+                    'nombre': perm.nombre,
+                    'origen': 'REVOCACION_DIRECTA'
+                })
 
         serializer = self.get_serializer(data, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

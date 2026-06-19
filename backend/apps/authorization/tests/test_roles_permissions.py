@@ -79,20 +79,25 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
 
         # Global patches to bypass standard permission checks and Celery
         self.sa_patcher = patch('apps.authorization.services.permission_service.is_platform_superadmin', return_value=False)
-        self.cp_patcher = patch('apps.authorization.services.permission_service.calculate_effective_permissions', return_value=['ROL_GESTIONAR', 'USUARIO_VER'])
-        self.sa_patcher.start()
-        self.cp_patcher.start()
+        self.cp_patcher = patch('apps.authorization.services.permission_service.calculate_effective_permissions', return_value={'ROL_GESTIONAR', 'USUARIO_VER'})
+        self.mock_sa = self.sa_patcher.start()
+        self.mock_cp = self.cp_patcher.start()
 
         # Specific patches for services to avoid DB calls in SimpleTestCase
         self.grant_sa_patcher = patch('apps.authorization.services.direct_permission_grant_service.is_platform_superadmin', return_value=False)
-        self.grant_cp_patcher = patch('apps.authorization.services.direct_permission_grant_service.calculate_effective_permissions', return_value=['EDICION_PUBLICAR', 'ROL_GESTIONAR', 'USUARIO_VER'])
+        self.grant_cp_patcher = patch('apps.authorization.services.direct_permission_grant_service.calculate_effective_permissions', return_value={'EDICION_PUBLICAR', 'ROL_GESTIONAR', 'USUARIO_VER'})
         self.revoke_sa_patcher = patch('apps.authorization.services.direct_permission_revoke_service.is_platform_superadmin', return_value=False)
-        self.revoke_cp_patcher = patch('apps.authorization.services.direct_permission_revoke_service.calculate_effective_permissions', return_value=['EDICION_PUBLICAR', 'ROL_GESTIONAR', 'USUARIO_VER'])
+        self.revoke_cp_patcher = patch('apps.authorization.services.direct_permission_revoke_service.calculate_effective_permissions', return_value={'EDICION_PUBLICAR', 'ROL_GESTIONAR', 'USUARIO_VER'})
         
         self.grant_sa_patcher.start()
         self.grant_cp_patcher.start()
         self.revoke_sa_patcher.start()
         self.revoke_cp_patcher.start()
+
+        # RolPermiso objects.using patcher
+        self.rp_patcher = patch('apps.authorization.models.rol_permiso.RolPermiso.objects.using')
+        self.mock_rp = self.rp_patcher.start()
+        self.mock_rp.return_value.filter.return_value.values_list.return_value = []
 
         # Audit record_event patcher
         self.audit_patcher = patch('apps.audit.services.audit_service.AuditService.record_event')
@@ -105,6 +110,7 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
         self.grant_cp_patcher.stop()
         self.revoke_sa_patcher.stop()
         self.revoke_cp_patcher.stop()
+        self.rp_patcher.stop()
         self.audit_patcher.stop()
         super().tearDown()
 
@@ -362,13 +368,31 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
 
         perm_crear = Permiso(codigo="EDICION_CREAR", nombre="Crear Edición", estado="ACTIVO")
         perm_publicar = Permiso(codigo="EDICION_PUBLICAR", nombre="Publicar Edición", estado="ACTIVO")
-        mock_perm_using.return_value.filter.return_value = [perm_crear, perm_publicar]
+        perm_eliminar = Permiso(codigo="EDICION_ELIMINAR", nombre="Eliminar Edición", estado="ACTIVO")
 
-        # Simulating that EDICION_PUBLICAR is a direct concession
-        dp_mock = MagicMock()
-        dp_mock.permiso.codigo = "EDICION_PUBLICAR"
-        dp_mock.tipo = "CONCEDER"
-        mock_get_direct.return_value = [dp_mock]
+        def filter_side_effect(**kwargs):
+            codes = kwargs.get('codigo__in', [])
+            res = []
+            if "EDICION_CREAR" in codes:
+                res.append(perm_crear)
+            if "EDICION_PUBLICAR" in codes:
+                res.append(perm_publicar)
+            if "EDICION_ELIMINAR" in codes:
+                res.append(perm_eliminar)
+            return res
+
+        mock_perm_using.return_value.filter.side_effect = filter_side_effect
+
+        # Simulating that EDICION_PUBLICAR is a direct concession, and EDICION_ELIMINAR is a direct revocation
+        dp_mock_concede = MagicMock()
+        dp_mock_concede.permiso.codigo = "EDICION_PUBLICAR"
+        dp_mock_concede.tipo = "CONCEDER"
+
+        dp_mock_revoke = MagicMock()
+        dp_mock_revoke.permiso.codigo = "EDICION_ELIMINAR"
+        dp_mock_revoke.tipo = "REVOCAR"
+
+        mock_get_direct.return_value = [dp_mock_concede, dp_mock_revoke]
 
         request = self.factory.get('/api/v1/companies/1/members/10/permissions/')
         force_authenticate(request, user=self.solicitante)
@@ -378,13 +402,15 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.data
-        self.assertEqual(len(data), 2)
+        self.assertEqual(len(data), 3)
         
         # Verify origins mapping
         crear_data = next(x for x in data if x['code'] == "EDICION_CREAR")
         publicar_data = next(x for x in data if x['code'] == "EDICION_PUBLICAR")
+        eliminar_data = next(x for x in data if x['code'] == "EDICION_ELIMINAR")
         self.assertEqual(crear_data['origen'], 'ROL')
         self.assertEqual(publicar_data['origen'], 'CONCESION_DIRECTA')
+        self.assertEqual(eliminar_data['origen'], 'REVOCACION_DIRECTA')
 
     # 8. POST /api/v1/companies/{emp_id}/members/{uep_id}/permissions/grant/
     @patch('apps.authorization.services.direct_permission_grant_service.Permiso.objects.using')
@@ -575,3 +601,172 @@ class CompanyRolesPermissionsTests(SimpleTestCase):
                 solicitante=self.solicitante
             )
         self.assertIn("No se pueden conceder permisos exclusivos de la plataforma a nivel empresarial.", str(ctx.exception))
+
+    # 12. Precedence and combinations of effective permissions checks
+    @patch('apps.authorization.services.permission_service.get_user_company_relation')
+    @patch('apps.authorization.services.permission_service.get_active_user_company_roles')
+    @patch('apps.authorization.services.permission_service.get_user_direct_permissions')
+    @patch('apps.authorization.models.rol_permiso.RolPermiso.objects.using')
+    def test_precedence_calculations(self, mock_rp_using, mock_get_direct, mock_get_roles, mock_get_relation):
+        # Stop global calculate_effective_permissions patch for this test
+        self.cp_patcher.stop()
+        try:
+            from apps.authorization.services.permission_service import calculate_effective_permissions
+            
+            # Setup mocks
+            relation = UsuarioEmpresa(usuario=self.target_user, empresa=self.company, estado="ACTIVO")
+            mock_get_relation.return_value = relation
+            
+            # Scenario A: Permiso heredado por rol
+            role_editor = Rol(id=101, codigo="EDITOR", estado="ACTIVO")
+            uer_editor = UsuarioEmpresaRol(usuario_empresa=relation, rol=role_editor, estado="ACTIVO")
+            mock_get_roles.return_value = [uer_editor]
+            mock_rp_using.return_value.filter.return_value.values_list.return_value = ["EDICION_CREAR"]
+            mock_get_direct.return_value = []
+            
+            perms = calculate_effective_permissions(2, 1)
+            self.assertIn("EDICION_CREAR", perms)
+            self.assertNotIn("EDICION_PUBLICAR", perms)
+            
+            # Scenario B: Concesión directa sin rol
+            mock_get_roles.return_value = [] # No roles
+            perm_publicar = Permiso(codigo="EDICION_PUBLICAR", estado="ACTIVO")
+            exc_concede = UsuarioEmpresaPermiso(usuario_empresa=relation, permiso=perm_publicar, tipo="CONCEDER", estado=True)
+            mock_get_direct.return_value = [exc_concede]
+            
+            perms = calculate_effective_permissions(2, 1)
+            self.assertIn("EDICION_PUBLICAR", perms)
+            self.assertNotIn("EDICION_CREAR", perms)
+            
+            # Scenario C: Revocación directa sobre permiso heredado
+            mock_get_roles.return_value = [uer_editor]
+            mock_rp_using.return_value.filter.return_value.values_list.return_value = ["EDICION_CREAR"]
+            perm_crear = Permiso(codigo="EDICION_CREAR", estado="ACTIVO")
+            exc_revoke = UsuarioEmpresaPermiso(usuario_empresa=relation, permiso=perm_crear, tipo="REVOCAR", estado=True)
+            mock_get_direct.return_value = [exc_revoke]
+            
+            perms = calculate_effective_permissions(2, 1)
+            self.assertNotIn("EDICION_CREAR", perms) # Revoked
+            
+            # Scenario D: Revocación directa sobre concesión (Revocación gana)
+            exc_concede_crear = UsuarioEmpresaPermiso(usuario_empresa=relation, permiso=perm_crear, tipo="CONCEDER", estado=True)
+            mock_get_direct.return_value = [exc_concede_crear, exc_revoke]
+            
+            perms = calculate_effective_permissions(2, 1)
+            self.assertNotIn("EDICION_CREAR", perms) # Revoked prevails over conceded
+            
+            # Scenario E: Varios roles con el mismo permiso
+            role_lector = Rol(id=103, codigo="LECTOR", estado="ACTIVO")
+            uer_lector = UsuarioEmpresaRol(usuario_empresa=relation, rol=role_lector, estado="ACTIVO")
+            mock_get_roles.return_value = [uer_editor, uer_lector]
+            mock_rp_using.return_value.filter.return_value.values_list.return_value = ["EDICION_CREAR"] # Both inherit it
+            mock_get_direct.return_value = []
+            
+            perms = calculate_effective_permissions(2, 1)
+            self.assertIn("EDICION_CREAR", perms)
+        finally:
+            self.cp_patcher.start()
+
+    # 13. Privilege escalation unit tests
+    @patch('apps.authorization.services.role_assignment_service.Rol.objects.using')
+    @patch('apps.authorization.services.role_assignment_service.UsuarioEmpresa.objects.using')
+    @patch('apps.authorization.services.role_assignment_service.transaction.atomic', side_effect=dummy_atomic)
+    def test_assign_role_privilege_escalation_blocked(self, mock_atomic, mock_uep_using, mock_rol_using):
+        from apps.authorization.services.role_assignment_service import assign_role_to_member
+        
+        role_to_assign = Rol(id=102, codigo="ADMIN_EMPRESA", tipo="EMPRESA", estado="ACTIVO")
+        mock_rol_using.return_value.get.return_value = role_to_assign
+        mock_uep_using.return_value.select_for_update.return_value.get.return_value = self.uep
+        
+        # Role to assign has "ROL_GESTIONAR" and "USUARIO_GESTIONAR"
+        self.mock_rp.return_value.filter.return_value.values_list.return_value = ["ROL_GESTIONAR", "USUARIO_GESTIONAR"]
+        
+        # Solicitor only has "ROL_GESTIONAR" (missing "USUARIO_GESTIONAR")
+        self.mock_cp.return_value = {"ROL_GESTIONAR"}
+        
+        with self.assertRaises(DjangoValidationError) as ctx:
+            assign_role_to_member(
+                uep_id=10,
+                emp_id=1,
+                role_code="ADMIN_EMPRESA",
+                solicitante=self.solicitante
+            )
+        self.assertIn("No puedes asignar un rol que contenga permisos que tú mismo no posees.", str(ctx.exception))
+
+    @patch('apps.authorization.services.role_primary_service.UsuarioEmpresaRol.objects.using')
+    @patch('apps.authorization.services.role_primary_service.transaction.atomic', side_effect=dummy_atomic)
+    def test_set_primary_role_privilege_escalation_blocked(self, mock_atomic, mock_uer_using):
+        from apps.authorization.services.role_primary_service import set_member_primary_role
+        
+        role_admin = Rol(id=102, codigo="ADMIN_EMPRESA", tipo="EMPRESA", estado="ACTIVO")
+        uer = UsuarioEmpresaRol(id=50, usuario_empresa=self.uep, rol=role_admin, estado="ACTIVO", es_principal=False, fecha_inicio=timezone.now() - timedelta(days=1))
+        mock_uer_using.return_value.select_for_update.return_value.get.return_value = uer
+        
+        # Role has "USUARIO_GESTIONAR"
+        self.mock_rp.return_value.filter.return_value.values_list.return_value = ["USUARIO_GESTIONAR"]
+        # Solicitor does not have "USUARIO_GESTIONAR"
+        self.mock_cp.return_value = set()
+        
+        with self.assertRaises(DjangoValidationError) as ctx:
+            set_member_primary_role(
+                uep_id=10,
+                emp_id=1,
+                uer_id=50,
+                solicitante=self.solicitante
+            )
+        self.assertIn("No puedes cambiar al miembro a un rol principal que contiene permisos que tú mismo no posees.", str(ctx.exception))
+
+    @patch('apps.authorization.services.direct_permission_remove_service.Permiso.objects.using')
+    @patch('apps.authorization.services.direct_permission_remove_service.UsuarioEmpresa.objects.using')
+    @patch('apps.authorization.services.direct_permission_remove_service.UsuarioEmpresaPermiso.objects.using')
+    @patch('apps.authorization.services.direct_permission_remove_service.transaction.atomic', side_effect=dummy_atomic)
+    def test_remove_exception_privilege_escalation_blocked(self, mock_atomic, mock_uepr_using, mock_uep_using, mock_perm_using):
+        from apps.authorization.services.direct_permission_remove_service import remove_direct_permission_exception
+        
+        perm = Permiso(id=201, codigo="EDICION_PUBLICAR", nombre="Publicar", estado="ACTIVO")
+        mock_perm_using.return_value.get.return_value = perm
+        mock_uep_using.return_value.select_for_update.return_value.get.return_value = self.uep
+        
+        # It's a REVOCAR exception
+        uepr = UsuarioEmpresaPermiso(id=301, usuario_empresa=self.uep, permiso=perm, tipo="REVOCAR", estado=True)
+        mock_uepr_using.return_value.select_for_update.return_value.get.return_value = uepr
+        
+        # Solicitor does not have the permission
+        self.mock_cp.return_value = set()
+        
+        with self.assertRaises(DjangoValidationError) as ctx:
+            remove_direct_permission_exception(
+                uep_id=10,
+                emp_id=1,
+                permission_code="EDICION_PUBLICAR",
+                solicitante=self.solicitante
+            )
+        self.assertIn("No puedes retirar la revocación de un permiso que tú mismo no posees.", str(ctx.exception))
+
+    # 14. Primary role concurrent requests simulator
+    @patch('apps.authorization.services.role_primary_service.UsuarioEmpresaRol.objects.using')
+    @patch('apps.authorization.services.role_primary_service.transaction.atomic', side_effect=dummy_atomic)
+    def test_set_primary_role_concurrent_integrity_error(self, mock_atomic, mock_uer_using):
+        from apps.authorization.services.role_primary_service import set_member_primary_role
+        from django.db import IntegrityError
+        
+        role_editor = Rol(id=101, codigo="EDITOR", tipo="EMPRESA", estado="ACTIVO")
+        uer = UsuarioEmpresaRol(id=50, usuario_empresa=self.uep, rol=role_editor, estado="ACTIVO", es_principal=False, fecha_inicio=timezone.now() - timedelta(days=1))
+        mock_uer_using.return_value.select_for_update.return_value.get.return_value = uer
+        
+        # Mock RP and calc perms to bypass checks
+        self.mock_rp.return_value.filter.return_value.values_list.return_value = []
+        self.mock_cp.return_value = set()
+        
+        # Mock save to raise IntegrityError (simulating concurrent save conflict or uniqueness failure)
+        uer.save = MagicMock(side_effect=IntegrityError("Clave duplicada simulada"))
+        mock_uer_using.return_value.select_for_update.return_value.filter.return_value = [uer]
+        
+        with self.assertRaises(DjangoValidationError) as ctx:
+            set_member_primary_role(
+                uep_id=10,
+                emp_id=1,
+                uer_id=50,
+                solicitante=self.solicitante
+            )
+        self.assertIn("Error de integridad al establecer rol principal", str(ctx.exception))

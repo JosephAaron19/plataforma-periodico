@@ -54,6 +54,8 @@ def finalize_member_role(
                 # Check if there is any other active admin role in the company
                 other_admins = UsuarioEmpresaRol.objects.using('periodico_db').select_for_update().filter(
                     usuario_empresa__empresa_id=emp_id,
+                    usuario_empresa__empresa__estado='ACTIVA',
+                    usuario_empresa__empresa__eliminado=False,
                     rol__codigo='ADMIN_EMPRESA',
                     estado='ACTIVO',
                     fecha_inicio__lte=now,
