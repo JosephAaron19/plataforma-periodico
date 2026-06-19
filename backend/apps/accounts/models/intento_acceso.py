@@ -12,16 +12,17 @@ class IntentoAcceso(models.Model):
         null=True,
         blank=True
     )
-    correo_ingresado = models.CharField(db_column='ina_correo_ingresado', max_length=255, null=True, blank=True)
+    correo_ingresado = models.CharField(db_column='ina_correo_ingresado', max_length=150, null=True, blank=True)
     direccion_ip = models.GenericIPAddressField(db_column='ina_direccion_ip', null=True, blank=True)
     agente_usuario = models.TextField(db_column='ina_agente_usuario', null=True, blank=True)
     fecha = models.DateTimeField(db_column='ina_fecha', auto_now_add=True)
     resultado = models.CharField(
         db_column='ina_resultado',
-        max_length=50,
+        max_length=30,
         choices=ResultadoIntentoAcceso.CHOICES
     )
-    motivo = models.CharField(db_column='ina_motivo', max_length=255, null=True, blank=True)
+    motivo = models.CharField(db_column='ina_motivo', max_length=150, null=True, blank=True)
+
     bloqueo_generado = models.BooleanField(db_column='ina_bloqueo_generado', default=False)
 
     class Meta:

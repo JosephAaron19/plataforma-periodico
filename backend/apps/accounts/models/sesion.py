@@ -13,7 +13,8 @@ class Sesion(models.Model):
     token_hash = models.CharField(db_column='ses_token_hash', max_length=255, unique=True)
     direccion_ip = models.GenericIPAddressField(db_column='ses_direccion_ip', null=True, blank=True)
     agente_usuario = models.TextField(db_column='ses_agente_usuario', null=True, blank=True)
-    dispositivo = models.CharField(db_column='ses_dispositivo', max_length=100, null=True, blank=True)
+    dispositivo = models.CharField(db_column='ses_dispositivo', max_length=150, null=True, blank=True)
+
     sistema_operativo = models.CharField(db_column='ses_sistema_operativo', max_length=100, null=True, blank=True)
     fecha_inicio = models.DateTimeField(db_column='ses_fecha_inicio', auto_now_add=True)
     fecha_ultimo_uso = models.DateTimeField(db_column='ses_fecha_ultimo_uso', null=True, blank=True)
