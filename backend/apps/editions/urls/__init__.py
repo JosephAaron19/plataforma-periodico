@@ -21,5 +21,5 @@ urlpatterns = [
 
     # Public endpoints
     path('public/editions/', PublicEditionListView.as_view(), name='public-edition-list'),
-    path('public/editions/<slug:slug>/', PublicEditionDetailView.as_view(), name='public-edition-detail'),
+    path('public/<slug:company_slug>/editions/<slug:slug>/', PublicEditionDetailView.as_view(), name='public-edition-detail'),
 ]

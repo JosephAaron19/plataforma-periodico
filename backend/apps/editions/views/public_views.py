@@ -24,7 +24,7 @@ class PublicEditionListView(generics.ListAPIView):
             
         company_slug = self.request.query_params.get('company_slug')
         if company_slug:
-            qs = qs.filter(empresa__emp_slug=company_slug)
+            qs = qs.filter(empresa__slug=company_slug)
             
         titulo = self.request.query_params.get('titulo')
         if titulo:
@@ -43,8 +43,9 @@ class PublicEditionDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
 
     def get_object(self):
+        company_slug = self.kwargs.get('company_slug')
         slug = self.kwargs.get('slug')
-        edition = get_public_edition_by_slug(slug)
+        edition = get_public_edition_by_slug(company_slug, slug)
         if not edition:
             raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
         return edition

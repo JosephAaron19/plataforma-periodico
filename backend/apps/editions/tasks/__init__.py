@@ -44,6 +44,45 @@ def publish_scheduled_editions_task():
                     locked_sched.save(using='periodico_db')
                     continue
 
+                # 2.b Revalidate company, active plan, plan feature and completed processing
+                company = locked_edition.empresa
+                if company.estado != 'ACTIVA' or company.eliminado:
+                    locked_sched.estado = 'VENCIDA'
+                    locked_sched.resultado = 'RECHAZADO'
+                    locked_sched.detalle_error = f"La empresa '{company.razon_social}' no está activa o fue eliminada."
+                    locked_sched.save(using='periodico_db')
+                    continue
+
+                from apps.plans.selectors.plan_selectors import get_company_active_plan
+                from apps.plans.services.plan_feature_service import has_plan_feature
+                if not get_company_active_plan(company.id):
+                    locked_sched.estado = 'VENCIDA'
+                    locked_sched.resultado = 'RECHAZADO'
+                    locked_sched.detalle_error = "La empresa no tiene un plan activo asignado."
+                    locked_sched.save(using='periodico_db')
+                    continue
+
+                if not has_plan_feature(company, "EDICION_PUBLICAR"):
+                    locked_sched.estado = 'VENCIDA'
+                    locked_sched.resultado = 'RECHAZADO'
+                    locked_sched.detalle_error = "El plan de la empresa no habilita la publicación de ediciones."
+                    locked_sched.save(using='periodico_db')
+                    continue
+
+                from apps.processing.models.procesamiento import Procesamiento
+                has_completed_processing = Procesamiento.objects.using('periodico_db').filter(
+                    edicion=locked_edition,
+                    estado='COMPLETADO',
+                    es_actual=True
+                ).exists()
+
+                if not has_completed_processing:
+                    locked_sched.estado = 'VENCIDA'
+                    locked_sched.resultado = 'RECHAZADO'
+                    locked_sched.detalle_error = "La edición debe completar el procesamiento antes de publicarse."
+                    locked_sched.save(using='periodico_db')
+                    continue
+
                 # 3. Publish the edition via the service
                 publish_edition(
                     company_id=locked_edition.empresa_id,

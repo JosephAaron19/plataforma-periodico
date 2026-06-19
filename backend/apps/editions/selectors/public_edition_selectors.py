@@ -19,11 +19,14 @@ def get_public_editions() -> QuerySet[Edicion]:
         empresa__eliminado=False
     ).select_related('empresa')
 
-def get_public_edition_by_slug(slug: str) -> Edicion:
+def get_public_edition_by_slug(company_slug: str, edition_slug: str) -> Edicion:
     """
-    Retrieves a single published, visible edition by its slug.
+    Retrieves a single published, visible edition by company slug and edition slug.
     """
     try:
-        return get_public_editions().get(slug=slug)
+        return get_public_editions().get(
+            empresa__slug=company_slug,
+            slug=edition_slug
+        )
     except Edicion.DoesNotExist:
         return None

@@ -172,6 +172,13 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+CELERY_BEAT_SCHEDULE = {
+    'publish-scheduled-editions-every-5-minutes': {
+        'task': 'apps.editions.tasks.publish_scheduled_editions_task',
+        'schedule': 300.0,
+    },
+}
+
 # Database Config
 DB_HOST = env('DB_HOST', default='')
 DB_PORT = env('DB_PORT', default='5435')

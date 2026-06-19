@@ -32,18 +32,63 @@ def publish_edition(*, company_id: int, edition_id: int, user: Usuario = None, p
         except Edicion.DoesNotExist:
             raise ValidationError("La edición especificada no existe o fue eliminada.")
 
-        # 2. Check current state transition compatibility
-        if edition.estado not in [EstadoEdicion.BORRADOR, EstadoEdicion.PROGRAMADA]:
-            raise ValidationError(f"No se puede publicar una edición en estado '{edition.estado}'.")
-
-        # 3. Validate company and plan
+        # 2. Validate company and plan
         try:
             company = Empresa.objects.using('periodico_db').get(id=company_id, eliminado=False)
         except Empresa.DoesNotExist:
             raise ValidationError("La empresa especificada no existe o fue eliminada.")
 
+        if company.estado != 'ACTIVA':
+            raise ValidationError("La empresa no está activa.")
+            
+        if edition.empresa_id != company.id:
+            raise ValidationError("La edición no pertenece a la empresa especificada.")
+            
+        if edition.eliminado:
+            raise ValidationError("La edición ha sido eliminada.")
+
+        from apps.plans.selectors.plan_selectors import get_company_active_plan
+        if not get_company_active_plan(company.id):
+            raise ValidationError("La empresa no tiene un plan activo asignado.")
+
         if not has_plan_feature(company, "EDICION_PUBLICAR"):
-            raise ValidationError("El plan de la empresa no habilita la publicación de ediciones.")
+            raise ValidationError("El plan de la empresa no habilita la programación o publicación de ediciones.")
+
+        if not edition.codigo or not edition.titulo or not edition.fecha_edicion:
+            raise ValidationError("Faltan campos editoriales obligatorios (código, título o fecha de edición).")
+
+        from apps.editions.services.edition_create_service import validate_edition_data
+        validate_edition_data({
+            'modalidad': edition.modalidad,
+            'precio': edition.precio,
+            'moneda': edition.moneda,
+            'permite_muestra': edition.permite_muestra,
+            'paginas_muestra': edition.paginas_muestra,
+            'numero_paginas': edition.numero_paginas
+        })
+
+        if not edition.slug:
+            raise ValidationError("La edición no tiene un slug válido.")
+
+        # 3. Check current state transition compatibility
+        if edition.estado not in [EstadoEdicion.PROCESADA, EstadoEdicion.PROGRAMADA]:
+            AuditService.record_event(
+                usuario=user,
+                emp_id=company_id,
+                modulo=AuditoriaModulo.M05,
+                accion=AuditoriaAccion.PUBLICACION_RECHAZADA_NO_PROCESADA,
+                entidad="Edicion",
+                entidad_id=str(edition.id),
+                valores_anteriores={"estado": edition.estado},
+                resultado=AuditoriaResultado.RECHAZADO,
+                motivo="La edición debe completar el procesamiento antes de publicarse.",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                proceso_origen=proceso_origen
+            )
+            err = ValidationError("La edición debe completar el procesamiento antes de publicarse.")
+            err.code = "EDITION_NOT_PROCESSED"
+            raise err
 
         # 4. Cancel/Mark schedules as executed or cancelled
         pending_scheds = EdicionProgramacion.objects.using('periodico_db').filter(

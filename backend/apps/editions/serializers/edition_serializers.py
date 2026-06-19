@@ -80,11 +80,14 @@ class EditionListSerializer(serializers.ModelSerializer):
         portada_rel = obj.archivos_asociados.filter(
             tipo_archivo='PORTADA',
             es_actual=True,
-            estado='ACTIVO'
+            estado='ACTIVO',
+            archivo__estado='DISPONIBLE',
+            archivo__eliminado=False,
+            archivo__es_publico=True
         ).select_related('archivo').first()
         
-        if portada_rel and portada_rel.archivo:
-            return portada_rel.archivo.ruta_storage
+        if portada_rel and portada_rel.archivo and portada_rel.archivo.empresa_id == obj.empresa_id:
+            return f"/media/{portada_rel.archivo.ruta_storage}"
         return None
 
 
@@ -110,11 +113,14 @@ class EditionDetailSerializer(serializers.ModelSerializer):
         portada_rel = obj.archivos_asociados.filter(
             tipo_archivo='PORTADA',
             es_actual=True,
-            estado='ACTIVO'
+            estado='ACTIVO',
+            archivo__estado='DISPONIBLE',
+            archivo__eliminado=False,
+            archivo__es_publico=True
         ).select_related('archivo').first()
         
-        if portada_rel and portada_rel.archivo:
-            return portada_rel.archivo.ruta_storage
+        if portada_rel and portada_rel.archivo and portada_rel.archivo.empresa_id == obj.empresa_id:
+            return f"/media/{portada_rel.archivo.ruta_storage}"
         return None
 
 
@@ -142,10 +148,11 @@ class EditionPublicSerializer(serializers.ModelSerializer):
             tipo_archivo='PORTADA',
             es_actual=True,
             estado='ACTIVO',
-            archivo__es_publico=True,
-            archivo__eliminado=False
+            archivo__estado='DISPONIBLE',
+            archivo__eliminado=False,
+            archivo__es_publico=True
         ).select_related('archivo').first()
         
-        if portada_rel and portada_rel.archivo:
-            return portada_rel.archivo.ruta_storage
+        if portada_rel and portada_rel.archivo and portada_rel.archivo.empresa_id == obj.empresa_id:
+            return f"/media/{portada_rel.archivo.ruta_storage}"
         return None

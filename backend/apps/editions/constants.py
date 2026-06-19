@@ -35,7 +35,10 @@ class EventoEdicionHistorial:
 
 # Valid transition state map: key is the current state, value is a set/list of allowed next states.
 VALID_TRANSITIONS = {
-    EstadoEdicion.BORRADOR: {EstadoEdicion.PROGRAMADA, EstadoEdicion.PUBLICADA},
+    EstadoEdicion.BORRADOR: {EstadoEdicion.PENDIENTE_PROCESAMIENTO},
+    EstadoEdicion.PENDIENTE_PROCESAMIENTO: {EstadoEdicion.PROCESANDO, EstadoEdicion.ERROR},
+    EstadoEdicion.PROCESANDO: {EstadoEdicion.PROCESADA, EstadoEdicion.ERROR},
+    EstadoEdicion.PROCESADA: {EstadoEdicion.PROGRAMADA, EstadoEdicion.PUBLICADA},
     EstadoEdicion.PROGRAMADA: {EstadoEdicion.PUBLICADA, EstadoEdicion.BORRADOR},
     EstadoEdicion.PUBLICADA: {EstadoEdicion.SUSPENDIDA},
     EstadoEdicion.SUSPENDIDA: {EstadoEdicion.PUBLICADA, EstadoEdicion.BORRADOR},
