@@ -13,6 +13,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 class PlanListView(generics.ListAPIView):
+    """
+    GET: List active and public plans.
+    
+    API Contract (Option A: Catálogo sin paginación):
+    - This catalog is static and small (typically 3-5 tiers).
+    - It always returns a flat JSON array directly, without page wrappers.
+    - Paginating here is intentionally disabled to ease comparison grid rendering on frontend.
+    """
     permission_classes = [AllowAny]
     serializer_class = PlanSerializer
     pagination_class = None
@@ -120,5 +128,23 @@ class CompanyPlanChangeView(generics.GenericAPIView):
         except DjangoValidationError as e:
             raise DRFValidationError(e.message_dict if hasattr(e, 'message_dict') else e.messages)
 
+        # Retrieve usage and construct warning messages if there's overconsumption
+        usage = get_company_usage(emp_id)
+        new_plan = new_relation.plan
+        warnings = []
+
+        if new_plan.limite_usuarios is not None and usage["users"] > new_plan.limite_usuarios:
+            warnings.append(f"El consumo actual de usuarios ({usage['users']}) excede el nuevo límite ({new_plan.limite_usuarios}).")
+
+        if new_plan.limite_ediciones_mes is not None and usage["editions"] > new_plan.limite_ediciones_mes:
+            warnings.append(f"El consumo actual de ediciones mensuales ({usage['editions']}) excede el nuevo límite ({new_plan.limite_ediciones_mes}).")
+
+        new_plan_storage_bytes = (new_plan.limite_storage_mb * 1024 * 1024) if new_plan.limite_storage_mb is not None else None
+        if new_plan_storage_bytes is not None and usage["storage_bytes"] > new_plan_storage_bytes:
+            warnings.append(f"El consumo actual de almacenamiento ({usage['storage_bytes'] / (1024 * 1024):.2f} MB) excede el nuevo límite ({new_plan.limite_storage_mb} MB).")
+
         response_serializer = CompanyPlanSerializer(new_relation)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
+        res_data = response_serializer.data
+        res_data["warnings"] = warnings
+        
+        return Response(res_data, status=status.HTTP_200_OK)

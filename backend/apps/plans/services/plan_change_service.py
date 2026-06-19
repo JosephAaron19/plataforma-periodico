@@ -50,6 +50,24 @@ def change_company_plan(
         old_plan = None
         now = timezone.now()
 
+        # Check for overconsumption under the new plan (evaluating current usage)
+        usage = get_company_usage(empresa_id)
+        overconsumption = False
+        over_details = []
+
+        if new_plan.limite_usuarios is not None and usage["users"] > new_plan.limite_usuarios:
+            overconsumption = True
+            over_details.append(f"usuarios ({usage['users']} > {new_plan.limite_usuarios})")
+
+        if new_plan.limite_ediciones_mes is not None and usage["editions"] > new_plan.limite_ediciones_mes:
+            overconsumption = True
+            over_details.append(f"ediciones ({usage['editions']} > {new_plan.limite_ediciones_mes})")
+
+        new_plan_storage_bytes = (new_plan.limite_storage_mb * 1024 * 1024) if new_plan.limite_storage_mb is not None else None
+        if new_plan_storage_bytes is not None and usage["storage_bytes"] > new_plan_storage_bytes:
+            overconsumption = True
+            over_details.append(f"almacenamiento ({usage['storage_bytes']} > {new_plan_storage_bytes} bytes)")
+
         if old_relation:
             old_plan = old_relation.plan
             old_relation.estado = 'REEMPLAZADO'
@@ -72,24 +90,6 @@ def change_company_plan(
             fecha_creacion=now
         )
         new_relation.save(using='periodico_db')
-
-        # 4. Check for overconsumption under the new plan
-        usage = get_company_usage(empresa_id)
-        overconsumption = False
-        over_details = []
-
-        if new_plan.limite_usuarios is not None and usage["users"] > new_plan.limite_usuarios:
-            overconsumption = True
-            over_details.append(f"usuarios ({usage['users']} > {new_plan.limite_usuarios})")
-
-        if new_plan.limite_ediciones_mes is not None and usage["editions"] > new_plan.limite_ediciones_mes:
-            overconsumption = True
-            over_details.append(f"ediciones ({usage['editions']} > {new_plan.limite_ediciones_mes})")
-
-        new_plan_storage_bytes = (new_plan.limite_storage_mb * 1024 * 1024) if new_plan.limite_storage_mb is not None else None
-        if new_plan_storage_bytes is not None and usage["storage_bytes"] > new_plan_storage_bytes:
-            overconsumption = True
-            over_details.append(f"almacenamiento ({usage['storage_bytes']} > {new_plan_storage_bytes} bytes)")
 
         action_code = AuditoriaAccion.PLAN_EMPRESA_CAMBIADO
         if overconsumption:

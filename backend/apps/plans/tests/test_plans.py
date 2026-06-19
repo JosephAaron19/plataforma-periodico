@@ -16,10 +16,11 @@ from apps.companies.models.empresa_historial import EmpresaHistorial
 from apps.authorization.models.permiso import Permiso
 from apps.authorization.models.usuario_empresa import UsuarioEmpresa
 from apps.authorization.models.invitacion_usuario import InvitacionUsuario
+from apps.authorization.models.rol import Rol
 
 # Dummy atomic transaction manager for SimpleTestCase (prevents DB access exceptions)
 @contextmanager
-def dummy_atomic(using=None):
+def dummy_atomic(*args, **kwargs):
     yield
 
 class PlansAndLimitsTests(SimpleTestCase):
@@ -353,3 +354,193 @@ class PlansAndLimitsTests(SimpleTestCase):
         response = view(request, emp_id=10)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 13. Selector: Multiple active plans logs error warning
+    @patch('apps.plans.selectors.plan_selectors.logger.error')
+    @patch('apps.plans.selectors.plan_selectors.EmpresaPlan.objects.using')
+    def test_get_company_active_plan_multiple_log(self, mock_ep_using, mock_log):
+        now = timezone.now()
+        ep1 = EmpresaPlan(id=50, empresa=self.company, plan=self.plan_base, estado='ACTIVO', fecha_inicio=now - timedelta(days=1))
+        ep2 = EmpresaPlan(id=51, empresa=self.company, plan=self.plan_premium, estado='ACTIVO', fecha_inicio=now - timedelta(days=1))
+        mock_ep_using.return_value.select_related.return_value.filter.return_value.filter.return_value = [ep1, ep2]
+
+        from apps.plans.selectors.plan_selectors import get_company_active_plan
+        with self.assertRaises(ValidationError):
+            get_company_active_plan(10)
+        mock_log.assert_called_once()
+
+    # 14. Selector: Plan is inactive (plan__estado != 'ACTIVO')
+    @patch('apps.plans.selectors.plan_selectors.EmpresaPlan.objects.using')
+    def test_get_company_active_plan_plan_inactive(self, mock_ep_using):
+        mock_ep_using.return_value.select_related.return_value.filter.return_value.filter.return_value = []
+
+        from apps.plans.selectors.plan_selectors import get_company_active_plan
+        res = get_company_active_plan(10)
+        self.assertIsNone(res)
+
+    # 15. Service: Expired plan blocks consumption increase
+    @patch('apps.plans.services.plan_limit_service.get_company_active_plan', return_value=None)
+    def test_expired_plan_blocks_consumption(self, mock_get_active):
+        from apps.plans.services.plan_limit_service import check_user_limit
+        res = check_user_limit(self.company)
+        self.assertFalse(res["allowed"])
+        self.assertEqual(res["code"], "PLAN_NOT_FOUND")
+
+    # 16. Service: has_plan_feature permission is inactive (estado != 'ACTIVO')
+    @patch('apps.plans.services.plan_feature_service.get_company_active_plan')
+    @patch('apps.plans.services.plan_feature_service.PlanFuncionalidad.objects.using')
+    def test_has_plan_feature_permission_inactive(self, mock_pf_using, mock_get_active):
+        ep = EmpresaPlan(id=50, empresa=self.company, plan=self.plan_base)
+        mock_get_active.return_value = ep
+        mock_pf_using.return_value.filter.return_value.filter.return_value.exists.return_value = False
+
+        from apps.plans.services.plan_feature_service import has_plan_feature
+        res = has_plan_feature(self.company, "EDICION_CREAR")
+        self.assertFalse(res)
+
+    # 17. Service: has_plan_feature company is inactive or deleted
+    def test_has_plan_feature_company_inactive_or_deleted(self):
+        inactive_company = Empresa(id=10, estado="SUSPENDIDA", eliminado=False)
+        deleted_company = Empresa(id=10, estado="ACTIVA", eliminado=True)
+
+        from apps.plans.services.plan_feature_service import has_plan_feature
+        self.assertFalse(has_plan_feature(inactive_company, "EDICION_CREAR"))
+        self.assertFalse(has_plan_feature(deleted_company, "EDICION_CREAR"))
+
+    # 18. Service: limit is null (unlimited) vs zero (fully blocked)
+    @patch('apps.plans.services.plan_limit_service.get_company_active_plan')
+    @patch('apps.plans.services.plan_limit_service.get_active_company_members_count')
+    def test_limit_null_and_zero(self, mock_count, mock_get_active):
+        # 1. Limit is None (unlimited)
+        plan_unlimited = Plan(id=200, codigo="UNLIMITED", limite_usuarios=None)
+        ep_unlimited = EmpresaPlan(id=50, empresa=self.company, plan=plan_unlimited)
+        mock_get_active.return_value = ep_unlimited
+        mock_count.return_value = 1000
+
+        from apps.plans.services.plan_limit_service import check_user_limit
+        res = check_user_limit(self.company)
+        self.assertTrue(res["allowed"])
+        self.assertIsNone(res["limit"])
+
+        # 2. Limit is 0 (fully blocked)
+        plan_zero = Plan(id=201, codigo="ZERO", limite_usuarios=0)
+        ep_zero = EmpresaPlan(id=51, empresa=self.company, plan=plan_zero)
+        mock_get_active.return_value = ep_zero
+        mock_count.return_value = 0
+
+        res2 = check_user_limit(self.company)
+        self.assertFalse(res2["allowed"])
+        self.assertEqual(res2["limit"], 0)
+
+    # 19. Service: limit exact match (used == limit)
+    @patch('apps.plans.services.plan_limit_service.get_company_active_plan')
+    @patch('apps.plans.services.plan_limit_service.get_active_company_members_count')
+    def test_limit_exact_match(self, mock_count, mock_get_active):
+        ep = EmpresaPlan(id=50, empresa=self.company, plan=self.plan_base)
+        mock_get_active.return_value = ep
+        mock_count.return_value = 5
+
+        from apps.plans.services.plan_limit_service import check_user_limit
+        res = check_user_limit(self.company)
+        self.assertFalse(res["allowed"])
+        self.assertEqual(res["code"], "PLAN_USER_LIMIT_REACHED")
+
+    # 20. Service: negative additional_bytes in storage limit validation
+    def test_negative_additional_bytes_throws(self):
+        from apps.plans.services.plan_limit_service import check_storage_limit
+        with self.assertRaises(ValidationError) as ctx:
+            check_storage_limit(self.company, additional_bytes=-100)
+        self.assertIn("La cantidad de bytes adicionales no puede ser negativa", str(ctx.exception))
+
+    # 21. Service Concurrency: accept_company_invitation performs select_for_update on Empresa
+    @patch('apps.authorization.services.invitation_accept_service.Empresa.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.InvitacionUsuario.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.Usuario.objects.using')
+    @patch('apps.authorization.services.invitation_accept_service.transaction.atomic', side_effect=dummy_atomic)
+    def test_concurrent_acceptances_locking(self, mock_atomic, mock_user_using, mock_inv_using, mock_emp_using):
+        mock_emp = MagicMock()
+        mock_emp_using.return_value.select_for_update.return_value.get.return_value = mock_emp
+        
+        rol_test = Rol(id=1, codigo="ROL_TEST", tipo="EMPRESA")
+        inv = InvitacionUsuario(id=1, empresa=self.company, invitado_por=self.superadmin, rol=rol_test, correo="test@ejemplo.com", estado="PENDIENTE", fecha_expiracion=timezone.now() + timedelta(days=1))
+        mock_inv_using.return_value.select_for_update.return_value.get.return_value = inv
+        
+        user = Usuario(id=2, usr_correo="test@ejemplo.com", estado="ACTIVO", correo_verificado=True)
+        mock_user_using.return_value.filter.return_value.first.return_value = user
+        
+        def uep_save_mock(instance, *args, **kwargs):
+            instance.id = 777
+
+        with patch('apps.authorization.services.invitation_accept_service.check_user_limit', return_value={"allowed": True}), \
+             patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresa.objects.using') as mock_uep_using, \
+             patch('apps.authorization.services.invitation_accept_service.UsuarioEmpresaRol.objects.using') as mock_uer_using, \
+             patch('apps.authorization.models.usuario_empresa.UsuarioEmpresa.save', new=uep_save_mock), \
+             patch('apps.authorization.models.usuario_empresa_rol.UsuarioEmpresaRol.save'), \
+             patch('apps.authorization.models.rol_historial.RolHistorial.save'), \
+             patch('apps.notifications.models.notificacion.Notificacion.save'), \
+             patch('apps.authorization.models.invitacion_usuario.InvitacionUsuario.save'), \
+             patch('apps.authorization.services.invitation_accept_service.transaction.on_commit'):
+            
+            mock_uep_using.return_value.filter.return_value.exists.return_value = False
+            mock_uep_using.return_value.filter.return_value.first.return_value = None
+            mock_uer_using.return_value.filter.return_value.first.return_value = None
+            
+            from apps.authorization.services.invitation_accept_service import accept_company_invitation
+            accept_company_invitation(plain_token="testtoken", logged_in_user=user)
+            
+            mock_emp_using.return_value.select_for_update.assert_called_once()
+            mock_emp_using.return_value.select_for_update.return_value.get.assert_called_with(id=10)
+
+    # 22. DRF Permission: Superadmin is subjected to company plan limits
+    @patch('apps.plans.permissions.within_plan_limit.check_user_limit')
+    @patch('apps.plans.permissions.within_plan_limit.Empresa.objects.using')
+    def test_superadmin_subjected_to_plan_limits(self, mock_emp_using, mock_check_limit):
+        mock_emp_using.return_value.get.return_value = self.company
+        mock_check_limit.return_value = {"allowed": False, "code": "PLAN_USER_LIMIT_REACHED", "message": "Exceeded", "limit": 5, "used": 5}
+
+        request = self.factory.post('/api/v1/companies/10/some-action/')
+        request.user = self.superadmin
+        
+        class MockView:
+            kwargs = {"emp_id": 10}
+            required_plan_limit = 'users'
+            
+        from apps.plans.permissions.within_plan_limit import WithinPlanLimit, PlanLimitExceeded
+        perm = WithinPlanLimit()
+        
+        with self.assertRaises(PlanLimitExceeded):
+            perm.has_permission(request, MockView())
+
+    # 23. DRF Permission: IDOR prevention on plan details/usage endpoints
+    @patch('apps.authorization.permissions.drf_permissions.is_platform_superadmin', return_value=False)
+    @patch('apps.authorization.permissions.drf_permissions.get_user_company_relation', return_value=None)
+    def test_idor_prevention_on_usage(self, mock_relation, mock_superadmin):
+        request = self.factory.get('/api/v1/companies/10/plan/usage/')
+        force_authenticate(request, user=self.regular_user)
+        
+        from apps.plans.views import CompanyPlanUsageView
+        view = CompanyPlanUsageView.as_view()
+        response = view(request, emp_id=10)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 24. API View: warnings returned in response for overconsumption during change
+    @patch('apps.plans.views.change_company_plan')
+    @patch('apps.plans.views.get_company_usage')
+    @patch('apps.authorization.permissions.drf_permissions.is_platform_superadmin', return_value=True)
+    def test_api_company_plan_change_warnings(self, mock_superadmin, mock_usage, mock_change):
+        ep = EmpresaPlan(id=50, empresa=self.company, plan=self.plan_base)
+        mock_change.return_value = ep
+        mock_usage.return_value = {"users": 10, "editions": 5, "storage_bytes": 10 * 1024 * 1024}
+
+        request = self.factory.post('/api/v1/companies/10/plan/change/', {"plan_code": "PLAN_BASE", "reason": "Reduccion de plan"})
+        force_authenticate(request, user=self.superadmin)
+        
+        from apps.plans.views import CompanyPlanChangeView
+        view = CompanyPlanChangeView.as_view()
+        response = view(request, emp_id=10)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("warnings", response.data)
+        self.assertTrue(len(response.data["warnings"]) > 0)
+        self.assertIn("excede el nuevo límite", response.data["warnings"][0])
+

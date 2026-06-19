@@ -80,6 +80,16 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             self.patchers.append(p_cul)
             p_cul.start()
 
+        # Patch Empresa.objects.using to prevent DB queries in SimpleTestCase
+        for m in [
+            'apps.authorization.services.invitation_accept_service',
+            'apps.authorization.services.member_reactivate_service',
+        ]:
+            p_emp = patch(f'{m}.Empresa.objects.using')
+            self.patchers.append(p_emp)
+            mock_using = p_emp.start()
+            mock_using.return_value.select_for_update.return_value.get.return_value = self.company
+
     def tearDown(self):
         for p in self.patchers:
             p.stop()

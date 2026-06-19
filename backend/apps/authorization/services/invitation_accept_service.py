@@ -50,6 +50,9 @@ def accept_company_invitation(
                 # Anti-enumeration/Generic security error
                 raise ValidationError("El token de invitación es inválido, ha expirado o ya fue procesado.")
 
+            # Lock the Empresa record to serialize user limit validations for this tenant/company
+            Empresa.objects.using('periodico_db').select_for_update().get(id=invitacion.empresa_id)
+
             # 2. Check current state and expiration
             if invitacion.estado not in ['PENDIENTE', 'REENVIADA']:
                 raise ValidationError("La invitación ya ha sido aceptada, rechazada o revocada.")

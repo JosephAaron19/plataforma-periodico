@@ -1,8 +1,11 @@
+import logging
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from apps.plans.models.plan import Plan
 from apps.plans.models.empresa_plan import EmpresaPlan
+
+logger = logging.getLogger(__name__)
 
 def get_active_plans():
     """
@@ -30,21 +33,28 @@ def get_company_active_plan(company_id: int) -> EmpresaPlan:
     Resolves the currently active and vigent plan of a company.
     Rules:
     - Must be in 'ACTIVO' state.
+    - Associated Plan must also be 'ACTIVO'.
     - Current timezone must be between epl_fecha_inicio and epl_fecha_fin (inclusive/exclusive),
       or epl_fecha_fin must be null.
     - If multiple active plans exist concurrent due to database inconsistency,
-      raises a ValidationError to prevent choosing arbitrarily.
+      logs a technical warning and raises a ValidationError.
     """
     now = timezone.now()
     active_plans = list(EmpresaPlan.objects.using('periodico_db').select_related('plan').filter(
         empresa_id=company_id,
         estado='ACTIVO',
+        plan__estado='ACTIVO',
         fecha_inicio__lte=now
     ).filter(
         Q(fecha_fin__isnull=True) | Q(fecha_fin__gt=now)
     ))
 
     if len(active_plans) > 1:
+        logger.error(
+            "Inconsistencia detectada en base de datos: la empresa con ID %s "
+            "tiene múltiples planes activos simultáneamente.",
+            company_id
+        )
         raise ValidationError("Inconsistencia detectada: la empresa tiene múltiples planes activos simultáneamente.")
     elif len(active_plans) == 1:
         return active_plans[0]

@@ -47,6 +47,9 @@ def get_company_usage(company) -> dict:
 def check_user_limit(company) -> dict:
     """
     Checks if the company has available slots to add/reactivate a user.
+    Interpretations of limits:
+    - None (or NULL in database): Unlimited.
+    - 0 or negative: A strict literal limit of 0 (no users allowed).
     """
     company_id = company if isinstance(company, int) else company.id
     active_plan_relation = get_company_active_plan(company_id)
@@ -89,6 +92,9 @@ def check_user_limit(company) -> dict:
 def check_edition_limit(company) -> dict:
     """
     Checks if the company can create a new edition in the current month.
+    Interpretations of limits:
+    - None (or NULL in database): Unlimited.
+    - 0 or negative: A strict literal limit of 0 (no editions allowed).
     """
     company_id = company if isinstance(company, int) else company.id
     active_plan_relation = get_company_active_plan(company_id)
@@ -131,7 +137,13 @@ def check_edition_limit(company) -> dict:
 def check_storage_limit(company, additional_bytes: int = 0) -> dict:
     """
     Checks if adding additional_bytes will exceed the company's storage capacity.
+    Interpretations of limits:
+    - None (or NULL in database): Unlimited.
+    - 0 or negative: A strict literal limit of 0, meaning no storage is allowed.
     """
+    if additional_bytes < 0:
+        raise ValidationError("La cantidad de bytes adicionales no puede ser negativa.")
+
     company_id = company if isinstance(company, int) else company.id
     active_plan_relation = get_company_active_plan(company_id)
     if not active_plan_relation:
