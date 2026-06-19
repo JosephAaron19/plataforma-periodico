@@ -87,3 +87,32 @@ class IsPlatformSuperadmin(BasePermission):
         if not IsAuthenticatedAndActive().has_permission(request, view):
             return False
         return is_platform_superadmin(request.user)
+
+
+class HasAnyCompanyPermission(HasCompanyAccess):
+    """
+    Allows access if the user has any of the required permissions.
+    """
+    def has_permission(self, request, view):
+        # 1. Basic access to company
+        if not super().has_permission(request, view):
+            return False
+
+        # 2. Platform Superadmin has all permissions
+        if is_platform_superadmin(request.user):
+            return True
+
+        # 3. Extract required permissions list from view
+        required_permissions = getattr(view, 'required_permissions', [])
+        if not required_permissions:
+            return False
+
+        # 4. Resolve company ID
+        emp_id = self.get_company_id(request, view)
+        if not emp_id:
+            return False
+
+        # 5. Check effective permissions
+        effective_perms = calculate_effective_permissions(request.user.id, emp_id)
+        return any(perm in effective_perms for perm in required_permissions)
+
