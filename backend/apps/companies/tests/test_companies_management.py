@@ -249,6 +249,196 @@ class CompanyCreateServiceTest(SimpleTestCase):
                 administrator_user_id=2
             )
 
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    def test_create_company_exception_in_identidad(
+        self, mock_empresa_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.EmpresaIdentidad.save', side_effect=Exception("Identidad Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("Identidad Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    @patch('apps.companies.services.company_create_service.EmpresaIdentidad.save')
+    def test_create_company_exception_in_configuracion(
+        self, mock_identidad_save, mock_emp_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.EmpresaConfiguracion.save', side_effect=Exception("Configuracion Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("Configuracion Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    @patch('apps.companies.services.company_create_service.EmpresaIdentidad.save')
+    @patch('apps.companies.services.company_create_service.EmpresaConfiguracion.save')
+    def test_create_company_exception_in_usuario_empresa(
+        self, mock_config_save, mock_identidad_save, mock_emp_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.UsuarioEmpresa.save', side_effect=Exception("UsuarioEmpresa Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("UsuarioEmpresa Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    @patch('apps.companies.services.company_create_service.EmpresaIdentidad.save')
+    @patch('apps.companies.services.company_create_service.EmpresaConfiguracion.save')
+    @patch('apps.companies.services.company_create_service.UsuarioEmpresa.save')
+    def test_create_company_exception_in_rol(
+        self, mock_ue_save, mock_config_save, mock_identidad_save, mock_emp_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.UsuarioEmpresaRol.save', side_effect=Exception("Rol Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("Rol Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    @patch('apps.companies.services.company_create_service.EmpresaIdentidad.save')
+    @patch('apps.companies.services.company_create_service.EmpresaConfiguracion.save')
+    @patch('apps.companies.services.company_create_service.UsuarioEmpresa.save')
+    @patch('apps.companies.services.company_create_service.UsuarioEmpresaRol.save')
+    def test_create_company_exception_in_plan(
+        self, mock_uer_save, mock_ue_save, mock_config_save, mock_identidad_save, mock_emp_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.EmpresaPlan.save', side_effect=Exception("Plan Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("Plan Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+    @patch('apps.companies.services.company_create_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.companies.services.company_create_service.Empresa.objects.using')
+    @patch('apps.companies.services.company_create_service.Plan.objects.using')
+    @patch('apps.companies.services.company_create_service.Rol.objects.using')
+    @patch('apps.companies.services.company_create_service.Usuario.objects.using')
+    @patch('apps.companies.services.company_create_service.Empresa.save')
+    @patch('apps.companies.services.company_create_service.EmpresaIdentidad.save')
+    @patch('apps.companies.services.company_create_service.EmpresaConfiguracion.save')
+    @patch('apps.companies.services.company_create_service.UsuarioEmpresa.save')
+    @patch('apps.companies.services.company_create_service.UsuarioEmpresaRol.save')
+    @patch('apps.companies.services.company_create_service.EmpresaPlan.save')
+    def test_create_company_exception_in_historial(
+        self, mock_ep_save, mock_uer_save, mock_ue_save, mock_config_save, mock_identidad_save, mock_emp_save, mock_user_using, mock_rol_using, mock_plan_using, mock_empresa_using, mock_atomic
+    ):
+        mock_user_using.return_value.get.return_value = self.admin_user
+        mock_rol_using.return_value.get.return_value = Rol(codigo='ADMIN_EMPRESA', estado='ACTIVO')
+        mock_plan_using.return_value.get.return_value = Plan(codigo='PLAN_BASE', estado='ACTIVO', precio=10.00, moneda='PEN', periodicidad='MENSUAL')
+        mock_emp_qs = MagicMock()
+        mock_emp_qs.filter.return_value.exists.return_value = False
+        mock_empresa_using.return_value = mock_emp_qs
+
+        with patch('apps.companies.services.company_create_service.EmpresaHistorial.save', side_effect=Exception("Historial Save Failure")) as mock_save:
+            with self.assertRaises(ValidationError) as ctx:
+                create_company(
+                    ruc='10203040506',
+                    razon_social='Demo S.A.',
+                    nombre_comercial='Demo Corp',
+                    slug='demo-corp',
+                    creado_por=self.superadmin,
+                    administrator_user_id=2
+                )
+            self.assertIn("Historial Save Failure", str(ctx.exception))
+            mock_save.assert_called_once()
+
+
 
 class CompanyUpdateServiceTest(SimpleTestCase):
     """
