@@ -6,7 +6,10 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     # Authentication endpoints
     path('api/v1/auth/', include('apps.accounts.urls')),
+    # Companies endpoints
+    path('api/v1/companies/', include('apps.companies.urls')),
     # Versioned API Health Check endpoints
+
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
     path('api/v1/health/database/', DatabaseHealthCheckView.as_view(), name='health_database'),
     path('api/v1/health/redis/', RedisHealthCheckView.as_view(), name='health_redis'),
