@@ -4,12 +4,14 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from apps.accounts.models.usuario import Usuario
+from apps.companies.models.empresa import Empresa
 from apps.authorization.models.usuario_empresa import UsuarioEmpresa
 from apps.authorization.models.usuario_empresa_rol import UsuarioEmpresaRol
 from apps.authorization.models.rol_historial import RolHistorial
 from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
 from apps.audit.services.audit_service import AuditService
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
+from apps.plans.services.plan_limit_service import check_user_limit
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,9 @@ def reactivate_company_member(
 
     try:
         with transaction.atomic(using='periodico_db'):
+            # Lock the Empresa record to serialize user limit validations for this tenant/company
+            Empresa.objects.using('periodico_db').select_for_update().get(id=empresa_id)
+
             # 2. Retrieve relationship with select_for_update inside the transaction
             try:
                 uep = UsuarioEmpresa.objects.using('periodico_db').select_for_update().get(
@@ -44,6 +49,11 @@ def reactivate_company_member(
 
             if uep.estado != 'SUSPENDIDO':
                 raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede reactivar.")
+
+            # Check user limit for the company plan
+            limit_result = check_user_limit(uep.empresa)
+            if not limit_result["allowed"]:
+                raise ValidationError(limit_result["message"])
 
             # Save previous state
             estado_anterior = uep.estado

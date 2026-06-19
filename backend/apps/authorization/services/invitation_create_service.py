@@ -15,6 +15,7 @@ from apps.authorization.services.permission_service import is_platform_superadmi
 from apps.authorization.tasks import send_company_invitation_email_task
 from apps.audit.services.audit_service import AuditService
 from apps.audit.constants import AuditoriaModulo, AuditoriaAccion, AuditoriaResultado
+from apps.plans.services.plan_limit_service import check_user_limit
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ def create_company_invitation(
     
     if empresa.estado != 'ACTIVA':
         raise ValidationError("No se pueden enviar invitaciones para una empresa que no está activa.")
+
+    # Check user limit for the company plan
+    limit_result = check_user_limit(empresa)
+    if not limit_result["allowed"]:
+        raise ValidationError(limit_result["message"])
 
     # 4. Resolve and validate the target role
     try:
