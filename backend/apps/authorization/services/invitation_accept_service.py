@@ -68,19 +68,12 @@ def accept_company_invitation(
 
             is_new_user = False
             if user:
-                # Existing user checks
-                if user.estado != 'ACTIVO':
-                    raise ValidationError("La cuenta asociada a esta invitación no está activa.")
-                
-                # Exige que la petición esté autenticada con la cuenta correspondiente
-                if not logged_in_user:
-                    raise ValidationError(
-                        "Este correo electrónico ya está registrado. Por favor, inicia sesión para aceptar la invitación."
-                    )
-                if logged_in_user.usr_correo.strip().lower() != email_clean:
-                    raise ValidationError(
-                        "Has iniciado sesión con una cuenta diferente. Cierra sesión e ingresa con la cuenta invitada."
-                    )
+                # Existing user checks: must be active, authenticated, matching email, and not passing password
+                if (user.estado != 'ACTIVO' or 
+                    not logged_in_user or 
+                    logged_in_user.usr_correo.strip().lower() != email_clean or 
+                    password is not None):
+                    raise ValidationError("El token de invitación es inválido, ha expirado o ya fue procesado.")
                 user = logged_in_user
             else:
                 # New user creation - password, nombres and apellidos required
@@ -88,6 +81,14 @@ def accept_company_invitation(
                     raise ValidationError({"password": "La contraseña es requerida para el registro del nuevo usuario."})
                 if not nombres:
                     raise ValidationError({"nombres": "Los nombres son requeridos."})
+                
+                # Validate password strength using existing validators
+                from django.contrib.auth.password_validation import validate_password
+                temp_user = Usuario(usr_correo=email_clean, nombres=nombres, apellidos=apellidos)
+                try:
+                    validate_password(password, temp_user)
+                except ValidationError as e:
+                    raise ValidationError({"password": list(e.messages)})
                 
                 is_new_user = True
                 user = Usuario(
@@ -99,6 +100,11 @@ def accept_company_invitation(
                     correo_verificado=True
                 )
                 user.save(using='periodico_db')
+                
+                # Create profile when corresponding
+                from apps.accounts.models.perfil import Perfil
+                perfil = Perfil(usuario=user, idioma='es')
+                perfil.save(using='periodico_db')
                 
                 # Link user to invitation instance
                 invitacion.usuario = user
@@ -176,16 +182,19 @@ def accept_company_invitation(
             )
             historial.save(using='periodico_db')
 
-            # 9. Create Notificacion entry
-            notif = Notificacion(
-                usuario=user,
-                empresa=invitacion.empresa,
-                tipo='SEGURIDAD',
-                titulo='Invitación Aceptada',
-                mensaje=f'Te has unido exitosamente a la empresa {invitacion.empresa.nombre_comercial} con el rol de {invitacion.rol.nombre}.',
-                estado='PENDIENTE'
-            )
-            notif.save(using='periodico_db')
+            # 9. Create Notificacion entry (tolerant creation)
+            try:
+                notif = Notificacion(
+                    usuario=user,
+                    empresa=invitacion.empresa,
+                    tipo='SEGURIDAD',
+                    titulo='Invitación Aceptada',
+                    mensaje=f'Te has unido exitosamente a la empresa {invitacion.empresa.nombre_comercial} con el rol de {invitacion.rol.nombre}.',
+                    estado='PENDIENTE'
+                )
+                notif.save(using='periodico_db')
+            except Exception as ne:
+                logger.warning(f"Error secundario al crear la notificación del sistema: {str(ne)}")
 
             # 10. Audit event logging (under savepoint/safe failure)
             AuditService.record_event(

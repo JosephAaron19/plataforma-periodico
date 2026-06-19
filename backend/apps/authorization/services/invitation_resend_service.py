@@ -52,40 +52,26 @@ def resend_company_invitation(
     if invitacion.fecha_aceptacion is not None:
         raise ValidationError("La invitación ya ha sido aceptada.")
 
-    # 5. Rate limiting checks via audit logs
+    # 5. Rate limiting checks using physical database fields
     now = timezone.now()
     
-    # 5a. Minimum 60 seconds interval
-    recent_send = Auditoria.objects.using('periodico_db').filter(
-        entidad='InvitacionUsuario',
-        entidad_id=str(invitacion.id),
-        accion__in=['INVITACION_CREADA', 'INVITACION_REENVIADA'],
-        resultado='EXITOSO',
-        fecha__gte=now - timedelta(seconds=60)
-    ).exists()
-    
-    if recent_send:
+    # 5a. Minimum 60 seconds interval between resends
+    if invitacion.fecha_envio and (now - invitacion.fecha_envio) < timedelta(seconds=60):
         raise ValidationError("Debe esperar al menos 60 segundos entre reenvíos.")
 
-    # 5b. Maximum 5 resends in 24 hours
-    daily_resends = Auditoria.objects.using('periodico_db').filter(
-        entidad='InvitacionUsuario',
-        entidad_id=str(invitacion.id),
-        accion='INVITACION_REENVIADA',
-        resultado='EXITOSO',
-        fecha__gte=now - timedelta(hours=24)
-    ).count()
-
-    if daily_resends >= 5:
-        raise ValidationError("Se ha superado el límite de 5 reenvíos en 24 horas para esta invitación.")
+    # Note: The database table 'pdg.inv_invitacion_usuario' does not contain a resend counter
+    # or multiple timestamp columns. Thus, enforcing "maximum 5 resends in 24 hours"
+    # using strictly physical table fields is not natively possible. We enforce the 
+    # minimum 60-second interval here, and propose Redis/token-bucket caching as a future scalability improvement.
 
     # 6. Regenerate token
     plain_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(plain_token.encode('utf-8')).hexdigest()
 
-    # 7. Update fields
+    # 7. Update fields (physically updating fecha_envio to track the last sent timestamp)
     invitacion.token_hash = token_hash
     invitacion.fecha_expiracion = now + timedelta(hours=72)
+    invitacion.fecha_envio = now
     invitacion.estado = 'REENVIADA'
 
     try:

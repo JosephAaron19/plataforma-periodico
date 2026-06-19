@@ -35,39 +35,56 @@ def suspend_company_member(
         if 'USUARIO_GESTIONAR' not in perms:
             raise ValidationError("No tienes permisos (USUARIO_GESTIONAR) para gestionar miembros.")
 
-    # 2. Retrieve relationship
-    try:
-        uep = UsuarioEmpresa.objects.using('periodico_db').get(
-            id=uep_id,
-            empresa_id=empresa_id
-        )
-    except UsuarioEmpresa.DoesNotExist:
-        raise ValidationError("La relación miembro-empresa especificada no existe.")
-
-    if uep.estado != 'ACTIVO':
-        raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede suspender.")
-
-    # 3. Prevent suspending the last active administrator
-    is_admin = uep.roles_asignados.filter(rol__codigo='ADMIN_EMPRESA', estado='ACTIVO').exists()
-    if is_admin:
-        other_admins = UsuarioEmpresaRol.objects.using('periodico_db').filter(
-            usuario_empresa__empresa_id=empresa_id,
-            rol__codigo='ADMIN_EMPRESA',
-            estado='ACTIVO'
-        ).exclude(usuario_empresa_id=uep.id).exists()
-        
-        if not other_admins:
-            raise ValidationError("No se puede suspender al único administrador activo de la empresa.")
-
     try:
         with transaction.atomic(using='periodico_db'):
+            # 2. Retrieve relationship with select_for_update inside the transaction
+            try:
+                uep = UsuarioEmpresa.objects.using('periodico_db').select_for_update().get(
+                    id=uep_id,
+                    empresa_id=empresa_id
+                )
+            except UsuarioEmpresa.DoesNotExist:
+                raise ValidationError("La relación miembro-empresa especificada no existe.")
+
+            if uep.estado != 'ACTIVO':
+                raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede suspender.")
+
+            # 3. Prevent suspending the last active administrator
+            from django.db.models import Q
+            now = timezone.now()
+            
+            is_admin = uep.roles_asignados.filter(
+                rol__codigo='ADMIN_EMPRESA', 
+                estado='ACTIVO',
+                fecha_inicio__lte=now
+            ).filter(
+                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=now)
+            ).exists()
+            
+            if is_admin:
+                # Lock and count other active administrators in this company to prevent race conditions
+                other_admins = UsuarioEmpresaRol.objects.using('periodico_db').select_for_update().filter(
+                    usuario_empresa__empresa_id=empresa_id,
+                    rol__codigo='ADMIN_EMPRESA',
+                    estado='ACTIVO',
+                    fecha_inicio__lte=now,
+                    usuario_empresa__estado='ACTIVO',
+                    usuario_empresa__usuario__estado='ACTIVO',
+                    usuario_empresa__usuario__eliminado=False
+                ).filter(
+                    Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=now)
+                ).exclude(usuario_empresa_id=uep.id)
+                
+                if not other_admins.exists():
+                    raise ValidationError("No se puede suspender al único administrador activo de la empresa.")
+
             # Save previous state for logging
             estado_anterior = uep.estado
             
             # Update uep state
             uep.estado = 'SUSPENDIDO'
             uep.motivo = motivo
-            uep.fecha_actualizacion = timezone.now()
+            uep.fecha_actualizacion = now
             uep.save(using='periodico_db')
 
             # Suspend active roles of this relation
@@ -77,7 +94,6 @@ def suspend_company_member(
             )
             
             for uer in active_roles:
-                uer_prev_estado = uer.estado
                 uer.estado = 'SUSPENDIDO'
                 uer.save(using='periodico_db')
 

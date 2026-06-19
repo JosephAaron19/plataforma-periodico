@@ -31,33 +31,37 @@ def reactivate_company_member(
         if 'USUARIO_GESTIONAR' not in perms:
             raise ValidationError("No tienes permisos (USUARIO_GESTIONAR) para gestionar miembros.")
 
-    # 2. Retrieve relationship
-    try:
-        uep = UsuarioEmpresa.objects.using('periodico_db').get(
-            id=uep_id,
-            empresa_id=empresa_id
-        )
-    except UsuarioEmpresa.DoesNotExist:
-        raise ValidationError("La relación miembro-empresa especificada no existe.")
-
-    if uep.estado != 'SUSPENDIDO':
-        raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede reactivar.")
-
     try:
         with transaction.atomic(using='periodico_db'):
+            # 2. Retrieve relationship with select_for_update inside the transaction
+            try:
+                uep = UsuarioEmpresa.objects.using('periodico_db').select_for_update().get(
+                    id=uep_id,
+                    empresa_id=empresa_id
+                )
+            except UsuarioEmpresa.DoesNotExist:
+                raise ValidationError("La relación miembro-empresa especificada no existe.")
+
+            if uep.estado != 'SUSPENDIDO':
+                raise ValidationError(f"La relación se encuentra en estado '{uep.estado}', no se puede reactivar.")
+
             # Save previous state
             estado_anterior = uep.estado
+            now = timezone.now()
             
             # Reactivate uep state
             uep.estado = 'ACTIVO'
             uep.motivo = 'Reactivación de miembro'
-            uep.fecha_actualizacion = timezone.now()
+            uep.fecha_actualizacion = now
             uep.save(using='periodico_db')
 
-            # Reactivate suspended roles of this relation
+            # Reactivate suspended roles of this relation that are still active (not expired)
+            from django.db.models import Q
             suspended_roles = UsuarioEmpresaRol.objects.using('periodico_db').filter(
                 usuario_empresa=uep,
                 estado='SUSPENDIDO'
+            ).filter(
+                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=now)
             )
             
             for uer in suspended_roles:

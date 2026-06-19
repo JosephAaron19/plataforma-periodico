@@ -16,7 +16,8 @@ class CompanyMemberListView(generics.ListAPIView):
     """
     GET: List all active/suspended members of a given company.
     """
-    permission_classes = [HasCompanyAccess]
+    permission_classes = [HasCompanyPermission]
+    required_permission = 'USUARIO_VER'
     serializer_class = CompanyMemberSerializer
 
     def get_queryset(self):
@@ -28,7 +29,8 @@ class CompanyMemberDetailView(generics.RetrieveAPIView):
     """
     GET: Retrieve details of a specific member in the company.
     """
-    permission_classes = [HasCompanyAccess]
+    permission_classes = [HasCompanyPermission]
+    required_permission = 'USUARIO_VER'
     serializer_class = CompanyMemberSerializer
 
     def get_object(self):

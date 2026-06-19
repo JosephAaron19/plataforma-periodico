@@ -22,11 +22,8 @@ class CompanyInvitationListCreateView(generics.ListCreateAPIView):
     GET: List all invitations for a given company.
     POST: Create and send a new user invitation for the company.
     """
-    def get_permissions(self):
-        if self.request.method == 'POST':
-            self.required_permission = 'USUARIO_GESTIONAR'
-            return [HasCompanyPermission()]
-        return [HasCompanyAccess()]
+    permission_classes = [HasCompanyPermission]
+    required_permission = 'USUARIO_GESTIONAR'
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
