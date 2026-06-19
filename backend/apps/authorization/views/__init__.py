@@ -10,6 +10,17 @@ from apps.authorization.views.members import (
     CompanyMemberSuspendView,
     CompanyMemberReactivateView
 )
+from apps.authorization.views.roles_permissions import (
+    CompanyRoleListView,
+    CompanyPermissionListView,
+    MemberRoleListAssignView,
+    MemberRoleFinalizeView,
+    MemberRoleSetPrimaryView,
+    MemberEffectivePermissionListView,
+    MemberPermissionGrantView,
+    MemberPermissionRevokeView,
+    MemberPermissionRemoveExceptionView
+)
 
 __all__ = [
     'CompanyInvitationListCreateView',
@@ -19,5 +30,15 @@ __all__ = [
     'CompanyMemberListView',
     'CompanyMemberDetailView',
     'CompanyMemberSuspendView',
-    'CompanyMemberReactivateView'
+    'CompanyMemberReactivateView',
+    'CompanyRoleListView',
+    'CompanyPermissionListView',
+    'MemberRoleListAssignView',
+    'MemberRoleFinalizeView',
+    'MemberRoleSetPrimaryView',
+    'MemberEffectivePermissionListView',
+    'MemberPermissionGrantView',
+    'MemberPermissionRevokeView',
+    'MemberPermissionRemoveExceptionView'
 ]
+
