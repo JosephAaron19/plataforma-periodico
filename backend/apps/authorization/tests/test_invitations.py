@@ -17,7 +17,9 @@ from apps.accounts.models.usuario import Usuario
 from apps.companies.models.empresa import Empresa
 from apps.authorization.models.invitacion_usuario import InvitacionUsuario
 from apps.authorization.models.usuario_empresa import UsuarioEmpresa
+from apps.authorization.models.usuario_empresa_rol import UsuarioEmpresaRol
 from apps.authorization.models.rol import Rol
+from apps.authorization.models.rol_historial import RolHistorial
 
 # Views
 from apps.authorization.views.invitations import (
@@ -458,7 +460,8 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             )
         self.assertIn("Debe esperar al menos 60 segundos entre reenvíos.", str(ctx.exception))
 
-    # 10.5 Tolerant system notification failure in acceptance
+    # 10.5 Tolerant system notification failure in acceptance (using on_commit)
+    @patch('apps.authorization.services.invitation_accept_service.transaction.on_commit')
     @patch('apps.authorization.services.invitation_accept_service.transaction.atomic', side_effect=dummy_atomic)
     @patch('apps.authorization.services.invitation_accept_service.InvitacionUsuario.objects.using')
     @patch('apps.authorization.services.invitation_accept_service.Usuario.objects.using')
@@ -471,7 +474,7 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
     @patch('apps.authorization.services.invitation_accept_service.AuditService.record_event')
     def test_accept_invitation_notification_fail_tolerated(
         self, mock_audit, mock_notif_save, mock_historial, mock_uer_save, mock_uep_save,
-        mock_uer_using, mock_uep_using, mock_user_using, mock_inv_using, mock_atomic
+        mock_uer_using, mock_uep_using, mock_user_using, mock_inv_using, mock_atomic, mock_on_commit
     ):
         from apps.authorization.services.invitation_accept_service import accept_company_invitation
         from datetime import timedelta
@@ -494,6 +497,9 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
         mock_uep_using.return_value.filter.return_value.first.return_value = None
         mock_uer_using.return_value.filter.return_value.first.return_value = None
         
+        # Simulate immediate execution of on_commit callback
+        mock_on_commit.side_effect = lambda func, using=None: func()
+        
         # Notification throws an error on save
         mock_notif_save.side_effect = Exception("Transient DB Notification failure")
         
@@ -509,7 +515,29 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             self.assertIsNotNone(res)
             mock_user_save.assert_called_once()
             mock_profile_save.assert_called_once()
+            mock_on_commit.assert_called_once()
             mock_notif_save.assert_called_once()
+
+    # 10.5.2 Rollback does not fire notification
+    @patch('apps.authorization.services.invitation_accept_service.transaction.on_commit')
+    @patch('apps.authorization.services.invitation_accept_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.authorization.services.invitation_accept_service.InvitacionUsuario.objects.using')
+    def test_accept_invitation_rollback_does_not_fire_notification(
+        self, mock_inv_using, mock_atomic, mock_on_commit
+    ):
+        from apps.authorization.services.invitation_accept_service import accept_company_invitation
+        
+        # Mock expired invitation to force early failure/rollback scenario
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.fecha_expiracion = timezone.now() - timedelta(hours=1) # Expired
+        mock_inv_using.return_value.select_for_update.return_value.get.return_value = mock_inv
+        
+        with self.assertRaises(DjangoValidationError):
+            accept_company_invitation(plain_token="token-abc")
+            
+        # The transaction fails/rolls back before registering on_commit, so it must not be called
+        mock_on_commit.assert_not_called()
 
     # 10.6 Last active administrator protection logic
     @patch('apps.authorization.services.member_suspend_service.transaction.atomic', side_effect=dummy_atomic)
@@ -540,3 +568,77 @@ class CompanyInvitationsViewsTest(SimpleTestCase):
             )
         self.assertIn("No se puede suspender al único administrador activo de la empresa.", str(ctx.exception))
 
+    # 10.7 Conservative member reactivation logic
+    @patch('apps.authorization.services.member_reactivate_service.transaction.atomic', side_effect=dummy_atomic)
+    @patch('apps.authorization.services.member_reactivate_service.UsuarioEmpresa.objects.using')
+    @patch('apps.authorization.services.member_reactivate_service.UsuarioEmpresaRol.objects.using')
+    @patch('apps.authorization.services.member_reactivate_service.RolHistorial.objects.using')
+    @patch('apps.authorization.services.member_reactivate_service.RolHistorial.save')
+    def test_reactivate_member_conservative_roles(
+        self, mock_historial_save, mock_historial_using, mock_uer_using, mock_uep_using, mock_atomic
+    ):
+        from apps.authorization.services.member_reactivate_service import reactivate_company_member
+        
+        mock_uep = UsuarioEmpresa(
+            id=12,
+            estado='SUSPENDIDO',
+            empresa=self.company,
+            usuario=self.user
+        )
+        mock_uep.save = MagicMock()
+        mock_uep_using.return_value.select_for_update.return_value.get.return_value = mock_uep
+        
+        # Roles in history that were suspended specifically due to member suspension
+        mock_historial_using.return_value.filter.return_value.values_list.return_value = [101, 102]
+        
+        # Two roles exist in database for this member:
+        # 1. Editor (role_id=101, es_principal=True, estado='SUSPENDIDO') -> Should be reactivated
+        # 2. Viewer (role_id=102, es_principal=False, estado='SUSPENDIDO') -> Should remain suspended (conservative policy)
+        role_editor = UsuarioEmpresaRol(
+            id=1,
+            usuario_empresa=mock_uep,
+            rol=Rol(codigo="EDITOR", nombre="Editor"),
+            es_principal=True,
+            estado='SUSPENDIDO'
+        )
+        role_editor.save = MagicMock()
+        
+        # Configure queryset filter
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value.first.return_value = role_editor
+        mock_uer_using.return_value.filter.return_value = mock_qs
+        
+        res = reactivate_company_member(
+            uep_id=12,
+            empresa_id=1,
+            solicitante=self.user
+        )
+        
+        self.assertEqual(res.estado, 'ACTIVO')
+        role_editor.save.assert_called_once()
+        self.assertEqual(role_editor.estado, 'ACTIVO')
+        mock_historial_save.assert_called_once()
+
+    # 10.8 Rate limit verification policy (strictly no audit table lookup dependencies)
+    @patch('apps.authorization.services.invitation_resend_service.InvitacionUsuario.objects.using')
+    def test_rate_limit_policy_no_audit(self, mock_inv_using):
+        from apps.authorization.services.invitation_resend_service import resend_company_invitation
+        
+        # Mock invitation sent 70 seconds ago (cooldown > 60s)
+        mock_inv = MagicMock(spec=InvitacionUsuario)
+        mock_inv.estado = 'PENDIENTE'
+        mock_inv.fecha_aceptacion = None
+        mock_inv.fecha_envio = timezone.now() - timedelta(seconds=70)
+        mock_inv_using.return_value.get.return_value = mock_inv
+        
+        # We patch send_company_invitation_email_task to avoid celery queueing
+        with patch('apps.authorization.services.invitation_resend_service.send_company_invitation_email_task'), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.atomic', side_effect=dummy_atomic), \
+             patch('apps.authorization.services.invitation_resend_service.transaction.on_commit', side_effect=lambda f, using=None: None), \
+             patch('apps.authorization.services.invitation_resend_service.AuditService.record_event'):
+            res = resend_company_invitation(
+                invitation_id="inv-123",
+                empresa_id=1,
+                solicitante=self.user
+            )
+            self.assertEqual(res.estado, 'REENVIADA')

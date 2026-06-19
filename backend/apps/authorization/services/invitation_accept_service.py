@@ -182,19 +182,22 @@ def accept_company_invitation(
             )
             historial.save(using='periodico_db')
 
-            # 9. Create Notificacion entry (tolerant creation)
-            try:
-                notif = Notificacion(
-                    usuario=user,
-                    empresa=invitacion.empresa,
-                    tipo='SEGURIDAD',
-                    titulo='Invitación Aceptada',
-                    mensaje=f'Te has unido exitosamente a la empresa {invitacion.empresa.nombre_comercial} con el rol de {invitacion.rol.nombre}.',
-                    estado='PENDIENTE'
-                )
-                notif.save(using='periodico_db')
-            except Exception as ne:
-                logger.warning(f"Error secundario al crear la notificación del sistema: {str(ne)}")
+            # 11. Create Notificacion entry (tolerant creation after commit)
+            def send_system_notification():
+                try:
+                    notif = Notificacion(
+                        usuario=user,
+                        empresa=invitacion.empresa,
+                        tipo='SEGURIDAD',
+                        titulo='Invitación Aceptada',
+                        mensaje=f'Te has unido exitosamente a la empresa {invitacion.empresa.nombre_comercial} con el rol de {invitacion.rol.nombre}.',
+                        estado='PENDIENTE'
+                    )
+                    notif.save(using='periodico_db')
+                except Exception as ne:
+                    logger.warning(f"Error secundario al crear la notificación del sistema tras commit: {str(ne)}")
+
+            transaction.on_commit(send_system_notification, using='periodico_db')
 
             # 10. Audit event logging (under savepoint/safe failure)
             AuditService.record_event(

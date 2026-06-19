@@ -55,25 +55,36 @@ def reactivate_company_member(
             uep.fecha_actualizacion = now
             uep.save(using='periodico_db')
 
-            # Reactivate suspended roles of this relation that are still active (not expired)
+            # Reactivate only the principal role suspended specifically due to the member suspension
             from django.db.models import Q
-            suspended_roles = UsuarioEmpresaRol.objects.using('periodico_db').filter(
+            
+            # Find the history records of roles suspended during the member suspension
+            suspended_role_ids = RolHistorial.objects.using('periodico_db').filter(
                 usuario_empresa=uep,
-                estado='SUSPENDIDO'
+                tipo_evento='FINALIZACION_ROL',
+                motivo__startswith="Relación suspendida:"
+            ).values_list('rol_id', flat=True)
+            
+            # Reactivate only the principal role if it was suspended during that event and is not expired
+            principal_suspended_role = UsuarioEmpresaRol.objects.using('periodico_db').filter(
+                usuario_empresa=uep,
+                rol_id__in=suspended_role_ids,
+                estado='SUSPENDIDO',
+                es_principal=True
             ).filter(
                 Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=now)
-            )
+            ).first()
             
-            for uer in suspended_roles:
-                uer.estado = 'ACTIVO'
-                uer.save(using='periodico_db')
-
+            if principal_suspended_role:
+                principal_suspended_role.estado = 'ACTIVO'
+                principal_suspended_role.save(using='periodico_db')
+                
                 # Log role reactivation to RolHistorial
                 historial = RolHistorial(
                     usuario_empresa=uep,
-                    rol=uer.rol,
+                    rol=principal_suspended_role.rol,
                     tipo_evento='ASIGNACION_ROL',
-                    motivo="Rol reactivado junto con la relación miembro",
+                    motivo="Rol principal reactivado junto con la relación miembro",
                     realizado_por=solicitante,
                     direccion_ip=ip_address
                 )
