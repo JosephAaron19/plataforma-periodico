@@ -109,6 +109,10 @@ class PDFUploadAndProcessingTests(SimpleTestCase):
         mock_doc = MagicMock()
         mock_doc.is_encrypted = False
         mock_doc.page_count = 5
+        mock_page = MagicMock()
+        mock_page.rect.width = 600.0
+        mock_page.rect.height = 800.0
+        mock_doc.load_page.return_value = mock_page
         mock_fitz.return_value = mock_doc
         
         mock_save_file.return_value = "tenant_10/abc-123.pdf"
@@ -177,6 +181,10 @@ class PDFUploadAndProcessingTests(SimpleTestCase):
         mock_doc = MagicMock()
         mock_doc.is_encrypted = False
         mock_doc.page_count = 5
+        mock_page = MagicMock()
+        mock_page.rect.width = 600.0
+        mock_page.rect.height = 800.0
+        mock_doc.load_page.return_value = mock_page
         mock_fitz.return_value = mock_doc
         
         mock_emp_using.return_value.select_for_update.return_value.get.return_value = self.company
@@ -369,3 +377,207 @@ class PDFUploadAndProcessingTests(SimpleTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["estado"], "PROCESANDO")
         self.assertEqual(float(response.data["porcentaje_avance"]), 30.00)
+
+    # --- ADDITIONAL SECURITY AND ROBUSTNESS TESTS ---
+
+    @patch('apps.processing.services.pdf_processor.get_company_active_plan')
+    @patch('apps.processing.services.pdf_processor.fitz.open')
+    @patch('apps.processing.services.pdf_processor.StorageService.get_private_absolute_path')
+    @patch('apps.processing.services.pdf_processor.StorageService.save_private_file')
+    @patch('apps.processing.services.pdf_processor.StorageService.save_public_file')
+    @patch('apps.processing.services.pdf_processor.ProcesamientoIntento.objects.using')
+    @patch('apps.processing.services.pdf_processor.Procesamiento.objects.using')
+    @patch('apps.processing.services.pdf_processor.EdicionPagina.objects.using')
+    @patch('apps.processing.services.pdf_processor.Archivo.objects.using')
+    @patch('apps.processing.services.pdf_processor.EdicionArchivo.objects.using')
+    @patch('apps.processing.services.pdf_processor.Edicion.objects.using')
+    @patch('apps.processing.services.pdf_processor.EdicionHistorial.objects.using')
+    @patch('apps.processing.services.pdf_processor.get_system_parameter_value')
+    @patch('apps.processing.services.pdf_processor.os.path.exists', return_value=True)
+    def test_page_privacy_pages_always_private(
+        self, mock_exists, mock_get_param, mock_hist_using, mock_edi_using, mock_eda_using, mock_arc_using, 
+        mock_pag_using, mock_proc_using, mock_intento_using, mock_save_public, mock_save_private, 
+        mock_abs_path, mock_fitz, mock_get_plan
+    ):
+        mock_get_plan.return_value = self.mock_plan_relation
+        mock_get_param.return_value = True  # Cover public = True
+        
+        pdf_archivo = Archivo(id=888, ruta_storage="tenant_10/abc.pdf", estado="CARGANDO", tamano_bytes=1000)
+        eda = EdicionArchivo(id=999, archivo=pdf_archivo, tipo_archivo="PDF_ORIGINAL", es_actual=True, empresa=self.company)
+        proc = Procesamiento(id=1, edicion=self.edition, archivo_edicion=eda, estado='PENDIENTE', es_actual=True, solicitado_por=self.editor)
+        intento = ProcesamientoIntento(id=5, procesamiento=proc, pri_estado='CREADO', pri_numero_intento=1, pri_solicitado_por=self.editor)
+        
+        mock_intento_using.return_value.select_for_update.return_value.get.return_value = intento
+        mock_proc_using.return_value.select_for_update.return_value.get.return_value = proc
+        
+        # 2 pages. Page 1 is sample (muestra = True), Page 2 is not.
+        self.edition.permite_muestra = True
+        self.edition.paginas_muestra = 1
+        
+        mock_doc = MagicMock()
+        mock_doc.page_count = 2
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.width = 1000
+        mock_pix.height = 1400
+        mock_pix.tobytes.return_value = b"imagedata"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.load_page.return_value = mock_page
+        mock_fitz.return_value = mock_doc
+        
+        mock_save_private.return_value = "tenant_10/page.jpg"
+        mock_save_public.return_value = "tenant_10/cover.jpg"
+        
+        from apps.processing.services.pdf_processor import process_pdf_attempt
+        res = process_pdf_attempt(intento_id=5)
+        self.assertTrue(res)
+        
+        # Verify both page creations were made with private storage settings
+        calls = mock_arc_using.return_value.create.call_args_list
+        # We created page 1, page 2 and cover (3 files in total)
+        self.assertEqual(len(calls), 3)
+        
+        # Page 1
+        page1_args = calls[0][1]
+        self.assertEqual(page1_args["es_publico"], False)
+        self.assertEqual(page1_args["contenedor"], "private")
+
+        # Page 2
+        page2_args = calls[1][1]
+        self.assertEqual(page2_args["es_publico"], False)
+        self.assertEqual(page2_args["contenedor"], "private")
+
+        # Cover (depends on policy which is True, so public)
+        cover_args = calls[2][1]
+        self.assertEqual(cover_args["es_publico"], True)
+        self.assertEqual(cover_args["contenedor"], "public")
+
+    def test_storage_service_path_traversal_and_root_escape(self):
+        from apps.files.services.storage_service import StorageService
+        
+        invalid_paths = [
+            "../secret.txt",
+            "folder/../../secret.txt",
+            "/absolute/path",
+            "C:\\Windows\\system32",
+            "..\\win.ini"
+        ]
+        
+        for path in invalid_paths:
+            with self.assertRaises(ValueError):
+                StorageService.get_private_absolute_path(path)
+            with self.assertRaises(ValueError):
+                StorageService.get_public_absolute_path(path)
+                
+            # Deletions should return False safely instead of crashing or deleting
+            self.assertFalse(StorageService.delete_private_file(path))
+            self.assertFalse(StorageService.delete_public_file(path))
+
+    @patch('apps.editions.views.pdf_views.get_company_edition_by_id', return_value=None)
+    @patch('apps.authorization.permissions.drf_permissions.get_user_company_relation')
+    @patch('apps.authorization.permissions.drf_permissions.is_platform_superadmin', return_value=False)
+    @patch('apps.authorization.permissions.drf_permissions.calculate_effective_permissions')
+    def test_idor_endpoints_denied_for_other_company(self, mock_calc_perms, mock_superadmin, mock_relation, mock_get_edition):
+        mock_relation.return_value = MagicMock()
+        mock_calc_perms.return_value = {'EDICION_EDITAR', 'PROCESAMIENTO_VER'}
+        
+        # Accessing PDF metadata of non-existent/different tenant edition
+        request = self.factory.get('/api/v1/companies/10/editions/999/pdf/')
+        force_authenticate(request, user=self.editor)
+        
+        from apps.editions.views.pdf_views import CompanyEditionPDFView
+        view = CompanyEditionPDFView.as_view()
+        response = view(request, emp_id=10, edi_id=999)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Accessing processing status of non-existent/different tenant edition
+        request_proc = self.factory.get('/api/v1/companies/10/editions/999/processing/')
+        force_authenticate(request_proc, user=self.editor)
+        
+        from apps.editions.views.pdf_views import CompanyEditionProcessingStatusView
+        view_proc = CompanyEditionProcessingStatusView.as_view()
+        response_proc = view_proc(request_proc, emp_id=10, edi_id=999)
+        self.assertEqual(response_proc.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('apps.processing.services.pdf_processor.get_company_active_plan')
+    @patch('apps.processing.services.pdf_processor.fitz.open')
+    @patch('apps.processing.services.pdf_processor.StorageService.get_private_absolute_path')
+    @patch('apps.processing.services.pdf_processor.StorageService.delete_private_file')
+    @patch('apps.processing.services.pdf_processor.ProcesamientoIntento.objects.using')
+    @patch('apps.processing.services.pdf_processor.Procesamiento.objects.using')
+    @patch('apps.processing.services.pdf_processor.os.path.exists', return_value=True)
+    def test_cooperative_cancellation_stopping_and_cleanup(
+        self, mock_exists, mock_proc_using, mock_intento_using, mock_delete_private, 
+        mock_abs_path, mock_fitz, mock_get_plan
+    ):
+        mock_get_plan.return_value = self.mock_plan_relation
+        
+        pdf_archivo = Archivo(id=888, ruta_storage="tenant_10/abc.pdf", estado="CARGANDO", tamano_bytes=1000)
+        eda = EdicionArchivo(id=999, archivo=pdf_archivo, tipo_archivo="PDF_ORIGINAL", es_actual=True, empresa=self.company)
+        
+        # Parent Processing has state CANCELADO
+        proc = Procesamiento(id=1, edicion=self.edition, archivo_edicion=eda, estado='CANCELADO', es_actual=True, solicitado_por=self.editor)
+        intento = ProcesamientoIntento(id=5, procesamiento=proc, pri_estado='CREADO', pri_numero_intento=1, pri_solicitado_por=self.editor)
+        
+        mock_intento_using.return_value.select_for_update.return_value.get.return_value = intento
+        mock_proc_using.return_value.select_for_update.return_value.get.return_value = proc
+        
+        # Configure get() of Procesamiento to return a separate cancelled record
+        cancelled_proc = Procesamiento(id=1, edicion=self.edition, archivo_edicion=eda, estado='CANCELADO', es_actual=True, solicitado_por=self.editor)
+        mock_proc_using.return_value.get.return_value = cancelled_proc
+        
+        mock_doc = MagicMock()
+        mock_doc.page_count = 5
+        mock_fitz.return_value = mock_doc
+        
+        from apps.processing.services.pdf_processor import process_pdf_attempt
+        res = process_pdf_attempt(intento_id=5)
+        
+        # The process should stop immediately and return False
+        self.assertFalse(res)
+        
+    @patch('apps.processing.services.pdf_processor.get_company_active_plan')
+    @patch('apps.processing.services.pdf_processor.fitz.open')
+    @patch('apps.processing.services.pdf_processor.StorageService.get_private_absolute_path')
+    @patch('apps.processing.services.pdf_processor.StorageService.save_private_file')
+    @patch('apps.processing.services.pdf_processor.ProcesamientoIntento.objects.using')
+    @patch('apps.processing.services.pdf_processor.Procesamiento.objects.using')
+    @patch('apps.processing.services.pdf_processor.EdicionPagina.objects.using')
+    @patch('apps.processing.services.pdf_processor.ProcesamientoError.objects.using')
+    @patch('apps.processing.services.pdf_processor.Edicion.objects.using')
+    @patch('apps.processing.services.pdf_processor.os.path.exists', return_value=True)
+    def test_atomic_failure_retains_old_derivatives(
+        self, mock_exists, mock_edi_using, mock_error_using, mock_pag_using, 
+        mock_proc_using, mock_intento_using, mock_save_private, mock_abs_path, 
+        mock_fitz, mock_get_plan
+    ):
+        mock_get_plan.return_value = self.mock_plan_relation
+        
+        pdf_archivo = Archivo(id=888, ruta_storage="tenant_10/abc.pdf", estado="CARGANDO", tamano_bytes=1000)
+        eda = EdicionArchivo(id=999, archivo=pdf_archivo, tipo_archivo="PDF_ORIGINAL", es_actual=True, empresa=self.company)
+        proc = Procesamiento(id=1, edicion=self.edition, archivo_edicion=eda, estado='PENDIENTE', es_actual=True, solicitado_por=self.editor)
+        intento = ProcesamientoIntento(id=5, procesamiento=proc, pri_estado='CREADO', pri_numero_intento=1, pri_solicitado_por=self.editor)
+        
+        mock_intento_using.return_value.select_for_update.return_value.get.return_value = intento
+        mock_proc_using.return_value.select_for_update.return_value.get.return_value = proc
+        mock_edi_using.return_value.select_for_update.return_value.get.return_value = self.edition
+        
+        # Load page raises an Exception during loop (simulating corrupt page extraction)
+        mock_doc = MagicMock()
+        mock_doc.page_count = 3
+        mock_doc.load_page.side_effect = Exception("Fallo de renderizado")
+        mock_fitz.return_value = mock_doc
+        
+        from apps.processing.services.pdf_processor import process_pdf_attempt
+        
+        # It should raise / return False without executing the final transaction
+        try:
+            res = process_pdf_attempt(intento_id=5)
+        except Exception:
+            res = False
+            
+        self.assertFalse(res)
+        
+        # Verify that EdicionPagina deactivations was NEVER called 
+        # (since deactivation is only done at the end of the transaction)
+        mock_pag_using.return_value.filter.assert_not_called()

@@ -30,11 +30,18 @@ def upload_edition_pdf(
     user_agent: str = None
 ) -> Edicion:
     """
-    Validates and uploads the main PDF file for an edition.
-    Validates magic bytes, file signature (real MIME type), plans and storage limits,
-    and enqueues the Celery processing task.
+    Validates and uploads the main PDF file for an edition following a strict safety order:
+    1. Validate file (magic bytes, structure, encryption, page count, dimensions).
+    2. Save physically to private storage.
+    3. Start database transaction and lock company & edition rows.
+    4. Validate plan and storage limits.
+    5. Register file in database, associate with edition, and create processing records.
+    6. Transition edition state.
+    7. Commit transaction and enqueue Celery task.
+    
+    If database operations fail, the physical file is deleted.
     """
-    # 1. Real MIME type detection by signature/bytes (do not trust the Content-Type header alone)
+    # 1. Validate file signature and content
     uploaded_file.seek(0)
     header = uploaded_file.read(4)
     uploaded_file.seek(0)
@@ -44,100 +51,122 @@ def upload_edition_pdf(
 
     file_size = uploaded_file.size
 
-    # 2. Open PDF with PyMuPDF to assert it is readable, not corrupt and not encrypted
+    # Open PDF with PyMuPDF to validate layout and structures
     try:
         doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
         uploaded_file.seek(0)
     except Exception as e:
         uploaded_file.seek(0)
-        raise ValidationError(f"No se pudo leer el archivo PDF. Podría estar corrupto. Detalle: {str(e)}")
+        raise ValidationError(f"No se pudo leer el archivo PDF. Podría estar corrupto o incompleto. Detalle: {str(e)}")
 
-    if doc.is_encrypted:
-        raise ValidationError("El archivo PDF está encriptado o protegido con contraseña.")
-    
-    if doc.page_count == 0:
-        raise ValidationError("El archivo PDF no contiene páginas.")
-
-    with transaction.atomic(using='periodico_db'):
-        # 3. Row locking for Empresa and Edicion
-        try:
-            company = Empresa.objects.using('periodico_db').select_for_update().get(id=company_id, eliminado=False)
-        except Empresa.DoesNotExist:
-            raise ValidationError("La empresa especificada no existe o fue eliminada.")
-
-        if company.estado != 'ACTIVA':
-            raise ValidationError("La empresa no está activa.")
-
-        try:
-            edition = Edicion.objects.using('periodico_db').select_for_update().get(
-                id=edition_id,
-                empresa_id=company_id,
-                eliminado=False
-            )
-        except Edicion.DoesNotExist:
-            raise ValidationError("La edición especificada no existe o fue eliminada.")
-
-        # 4. Check that edition state allows uploading PDF (BORRADOR or ERROR)
-        if edition.estado not in [EstadoEdicion.BORRADOR, EstadoEdicion.ERROR]:
-            raise ValidationError(
-                f"No se puede subir un PDF para esta edición en su estado actual ({edition.estado}). "
-                "Debe estar en BORRADOR o ERROR."
-            )
-
-        # 5. Check plan limits
-        active_plan_relation = get_company_active_plan(company_id)
-        if not active_plan_relation:
-            raise ValidationError("La empresa no tiene un plan activo asignado.")
-
-        plan = active_plan_relation.plan
+    try:
+        if doc.is_encrypted:
+            raise ValidationError("El archivo PDF está encriptado o protegido con contraseña.")
         
-        # Check PDF size limit
-        limite_pdf_mb = plan.limite_pdf_mb
-        if limite_pdf_mb is not None:
-            max_bytes = limite_pdf_mb * 1024 * 1024
-            if file_size > max_bytes:
+        page_count = doc.page_count
+        if page_count <= 0:
+            raise ValidationError("El archivo PDF no contiene páginas.")
+
+        # Validate reasonable dimensions for each page (max 5000 pt, min 100 pt)
+        for page_idx in range(page_count):
+            try:
+                page = doc.load_page(page_idx)
+                rect = page.rect
+                width, height = rect.width, rect.height
+                if width < 100 or height < 100 or width > 5000 or height > 5000:
+                    raise ValidationError(
+                        f"La página {page_idx + 1} tiene dimensiones fuera de rango permitido ({width:.1f}x{height:.1f} pt)."
+                    )
+            except Exception as pe:
+                if isinstance(pe, ValidationError):
+                    raise pe
+                raise ValidationError(f"Error al analizar la estructura de la página {page_idx + 1}. Documento corrupto.")
+    finally:
+        doc.close()
+
+    # 2. Save physically to private storage
+    relative_path = None
+    try:
+        # Generate sha256 checksum
+        uploaded_file.seek(0)
+        hasher = hashlib.sha256()
+        for chunk in uploaded_file.chunks():
+            hasher.update(chunk)
+        hash_sha256 = hasher.hexdigest()
+        uploaded_file.seek(0)
+
+        # Save private file
+        relative_path = StorageService.save_private_file(uploaded_file, company_id, uploaded_file.name)
+    except Exception as io_err:
+        raise ValidationError(f"Error de almacenamiento físico del archivo. Detalle: {str(io_err)}")
+
+    # 3. Start database transaction
+    try:
+        with transaction.atomic(using='periodico_db'):
+            # 4. Lock company and edition rows
+            try:
+                company = Empresa.objects.using('periodico_db').select_for_update().get(id=company_id, eliminado=False)
+            except Empresa.DoesNotExist:
+                raise ValidationError("La empresa especificada no existe o fue eliminada.")
+
+            if company.estado != 'ACTIVA':
+                raise ValidationError("La empresa no está activa.")
+
+            try:
+                edition = Edicion.objects.using('periodico_db').select_for_update().get(
+                    id=edition_id,
+                    empresa_id=company_id,
+                    eliminado=False
+                )
+            except Edicion.DoesNotExist:
+                raise ValidationError("La edición especificada no existe o fue eliminada.")
+
+            # Check allowed state (BORRADOR or ERROR)
+            if edition.estado not in [EstadoEdicion.BORRADOR, EstadoEdicion.ERROR]:
                 raise ValidationError(
-                    f"El tamaño del archivo ({file_size / (1024 * 1024):.2f} MB) excede el límite permitido por el plan ({limite_pdf_mb} MB)."
+                    f"No se puede subir un PDF para esta edición en su estado actual ({edition.estado}). "
+                    "Debe estar en BORRADOR o ERROR."
                 )
 
-        # Check total storage limit
-        storage_check = check_storage_limit(company_id, additional_bytes=file_size)
-        if not storage_check["allowed"]:
-            raise ValidationError(storage_check["message"])
+            # 5. Check plan limits
+            active_plan_relation = get_company_active_plan(company_id)
+            if not active_plan_relation:
+                raise ValidationError("La empresa no tiene un plan activo asignado.")
 
-        # 6. Deactivate old PDF association if exists
-        old_ed_files = EdicionArchivo.objects.using('periodico_db').filter(
-            edicion=edition,
-            tipo_archivo='PDF_ORIGINAL',
-            es_actual=True
-        )
-        for old_eda in old_ed_files:
-            old_eda.es_actual = False
-            old_eda.estado = 'REEMPLAZADO'
-            old_eda.fecha_reemplazo = timezone.now()
-            old_eda.motivo_reemplazo = 'Reemplazado por carga de nuevo PDF'
-            old_eda.save(using='periodico_db')
+            plan = active_plan_relation.plan
             
-            # Update associated Archivo status to REEMPLAZADO
-            old_file = old_eda.archivo
-            old_file.estado = 'REEMPLAZADO'
-            old_file.save(using='periodico_db')
+            # Check PDF size limit
+            limite_pdf_mb = plan.limite_pdf_mb
+            if limite_pdf_mb is not None:
+                max_bytes = limite_pdf_mb * 1024 * 1024
+                if file_size > max_bytes:
+                    raise ValidationError(
+                        f"El tamaño del archivo ({file_size / (1024 * 1024):.2f} MB) excede el límite permitido por el plan ({limite_pdf_mb} MB)."
+                    )
 
-        # 7. Write to storage with absolute rollback safety
-        relative_path = None
-        try:
-            # Generate hash of uploaded file
-            uploaded_file.seek(0)
-            hasher = hashlib.sha256()
-            for chunk in uploaded_file.chunks():
-                hasher.update(chunk)
-            hash_sha256 = hasher.hexdigest()
-            uploaded_file.seek(0)
+            # Check total storage limit
+            storage_check = check_storage_limit(company_id, additional_bytes=file_size)
+            if not storage_check["allowed"]:
+                raise ValidationError(storage_check["message"])
 
-            # Save file physically using StorageService
-            relative_path = StorageService.save_private_file(uploaded_file, company_id, uploaded_file.name)
+            # 6. Deactivate old PDF and derived associations (PORTADA, etc.)
+            old_ed_files = EdicionArchivo.objects.using('periodico_db').filter(
+                edicion=edition,
+                tipo_archivo__in=['PDF_ORIGINAL', 'PORTADA', 'MINIATURA', 'PREVIEW'],
+                es_actual=True
+            )
+            for old_eda in old_ed_files:
+                old_eda.es_actual = False
+                old_eda.estado = 'REEMPLAZADO'
+                old_eda.fecha_reemplazo = timezone.now()
+                old_eda.motivo_reemplazo = 'Reemplazado por carga de nuevo PDF'
+                old_eda.save(using='periodico_db')
+                
+                old_file = old_eda.archivo
+                old_file.estado = 'REEMPLAZADO'
+                old_file.save(using='periodico_db')
 
-            # Save in database
+            # 7. Create Archivo record
             ext = os.path.splitext(uploaded_file.name)[1].lower() or '.pdf'
             archivo = Archivo.objects.using('periodico_db').create(
                 empresa=company,
@@ -157,7 +186,7 @@ def upload_edition_pdf(
                 eliminado=False
             )
 
-            # Create EdicionArchivo association
+            # 8. Create EdicionArchivo association
             edicion_archivo = EdicionArchivo.objects.using('periodico_db').create(
                 edicion=edition,
                 archivo=archivo,
@@ -169,22 +198,21 @@ def upload_edition_pdf(
                 empresa=company
             )
 
-            # Deactivate previous processings for this edition
+            # Deactivate previous processings
             Procesamiento.objects.using('periodico_db').filter(
                 edicion=edition,
                 es_actual=True
             ).update(es_actual=False)
 
-            # Get next processing version
             version_proc = Procesamiento.objects.using('periodico_db').filter(edicion=edition).count() + 1
 
-            # Create new Procesamiento record
+            # 9. Create Procesamiento record
             procesamiento = Procesamiento.objects.using('periodico_db').create(
                 edicion=edition,
                 archivo_edicion=edicion_archivo,
                 version=version_proc,
                 estado='PENDIENTE',
-                total_paginas_esperadas=doc.page_count,
+                total_paginas_esperadas=page_count,
                 total_paginas_generadas=0,
                 porcentaje_avance=0.00,
                 prioridad=5,
@@ -192,7 +220,7 @@ def upload_edition_pdf(
                 es_actual=True
             )
 
-            # Create new ProcesamientoIntento record
+            # Create ProcesamientoIntento record
             intento = ProcesamientoIntento.objects.using('periodico_db').create(
                 procesamiento=procesamiento,
                 pri_numero_intento=1,
@@ -201,14 +229,14 @@ def upload_edition_pdf(
                 edi_id=edition.id
             )
 
-            # Transition edition state to PENDIENTE_PROCESAMIENTO
+            # 10. Transition edition state to PENDIENTE_PROCESAMIENTO
             old_estado = edition.estado
             edition.estado = EstadoEdicion.PENDIENTE_PROCESAMIENTO
             edition.actualizado_por = user
             edition.fecha_actualizacion = timezone.now()
             edition.save(using='periodico_db')
 
-            # Create history record
+            # Create histories and audits
             EdicionHistorial.objects.using('periodico_db').create(
                 edicion=edition,
                 tipo_evento=EventoEdicionHistorial.CARGA_PDF,
@@ -224,7 +252,6 @@ def upload_edition_pdf(
                 resultado='EXITOSO'
             )
 
-            # Record audit event
             AuditService.record_event(
                 usuario=user,
                 emp_id=company_id,
@@ -241,17 +268,17 @@ def upload_edition_pdf(
                 user_agent=user_agent
             )
 
-            # Enqueue Celery task on commit
+            # 11. Enqueue Celery task on commit
             from apps.processing.tasks import process_edition_pdf_task
             transaction.on_commit(
                 lambda: process_edition_pdf_task.delay(intento.id),
                 using='periodico_db'
             )
 
-        except Exception as db_err:
-            # Physical file cleanup to avoid orphans if database operations fail
-            if relative_path:
-                StorageService.delete_private_file(relative_path)
-            raise db_err
+    except Exception as db_err:
+        # Delete file if database operations fail
+        if relative_path:
+            StorageService.delete_private_file(relative_path)
+        raise db_err
 
     return edition
