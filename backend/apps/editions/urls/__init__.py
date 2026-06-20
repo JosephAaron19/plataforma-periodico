@@ -7,7 +7,11 @@ from apps.editions.views import (
     CompanyEditionSuspendView,
     CompanyEditionReactivateView,
     PublicEditionListView,
-    PublicEditionDetailView
+    PublicEditionDetailView,
+    CompanyEditionPDFView,
+    CompanyEditionProcessingStatusView,
+    CompanyEditionProcessingRetryView,
+    CompanyEditionProcessingCancelView
 )
 
 urlpatterns = [
@@ -18,6 +22,12 @@ urlpatterns = [
     path('companies/<int:emp_id>/editions/<int:edi_id>/publish/', CompanyEditionPublishView.as_view(), name='company-edition-publish'),
     path('companies/<int:emp_id>/editions/<int:edi_id>/suspend/', CompanyEditionSuspendView.as_view(), name='company-edition-suspend'),
     path('companies/<int:emp_id>/editions/<int:edi_id>/reactivate/', CompanyEditionReactivateView.as_view(), name='company-edition-reactivate'),
+    
+    # PDF and Processing endpoints
+    path('companies/<int:emp_id>/editions/<int:edi_id>/pdf/', CompanyEditionPDFView.as_view(), name='company-edition-pdf'),
+    path('companies/<int:emp_id>/editions/<int:edi_id>/processing/', CompanyEditionProcessingStatusView.as_view(), name='company-edition-processing-status'),
+    path('companies/<int:emp_id>/editions/<int:edi_id>/processing/retry/', CompanyEditionProcessingRetryView.as_view(), name='company-edition-processing-retry'),
+    path('companies/<int:emp_id>/editions/<int:edi_id>/processing/cancel/', CompanyEditionProcessingCancelView.as_view(), name='company-edition-processing-cancel'),
 
     # Public endpoints
     path('public/editions/', PublicEditionListView.as_view(), name='public-edition-list'),
