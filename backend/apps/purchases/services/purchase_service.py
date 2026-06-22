@@ -19,7 +19,7 @@ from apps.purchases.models.compra import Compra
 from apps.purchases.models.proveedor_pago import ProveedorPago
 from apps.payments.models.pago import Pago
 from apps.access.models.acceso_edicion import AccesoEdicion
-from apps.purchases.services.mock_payment_provider import MockPaymentProvider
+from apps.payments.providers.mock_provider import MockPaymentProvider
 from apps.purchases.services.grant_access_service import grant_purchase_access
 from apps.audit.services.audit_service import AuditService
 

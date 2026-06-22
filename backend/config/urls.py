@@ -18,6 +18,8 @@ urlpatterns = [
     path('api/v1/', include('apps.reading.urls')),
     # Purchases endpoints (purchase, mock-confirm, my-purchases)
     path('api/v1/', include('apps.purchases.urls')),
+    # Payments endpoints (webhooks)
+    path('api/v1/payments/', include('apps.payments.urls')),
     # Versioned API Health Check endpoints
 
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
