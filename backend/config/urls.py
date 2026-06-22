@@ -16,6 +16,8 @@ urlpatterns = [
     path('api/v1/', include('apps.access.urls')),
     # Reading endpoints
     path('api/v1/', include('apps.reading.urls')),
+    # Purchases endpoints (purchase, mock-confirm, my-purchases)
+    path('api/v1/', include('apps.purchases.urls')),
     # Versioned API Health Check endpoints
 
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
