@@ -124,37 +124,37 @@ def _make_acceso(acc_id=1, compra_id=1, estado='ACTIVO', fecha_fin=None):
 class MockPaymentProviderTest(SimpleTestCase):
     """Tests for MockPaymentProvider — no DB access."""
 
-    def _get_provider(self, force_failure=False):
-        from apps.purchases.services.mock_payment_provider import MockPaymentProvider
+    def get_mock_provider(self, force_failure=False):
+        from apps.payments.providers.mock_provider import MockPaymentProvider
         return MockPaymentProvider(force_failure=force_failure)
 
     def test_initiate_success_returns_result(self):
-        provider = self._get_provider()
+        provider = self.get_mock_provider()
         result = provider.initiate_payment(amount=Decimal('10.00'), currency='PEN', reference='REF001')
         self.assertTrue(result.success)
         self.assertIsNotNone(result.external_id)
         self.assertIn('MOCK', result.external_id)
 
     def test_initiate_failure_returns_rejected(self):
-        provider = self._get_provider(force_failure=True)
+        provider = self.get_mock_provider(force_failure=True)
         result = provider.initiate_payment(amount=Decimal('10.00'), currency='PEN', reference='REF002')
         self.assertFalse(result.success)
         self.assertEqual(result.code, 'MOCK_REJECTED')
 
     def test_confirm_success(self):
-        provider = self._get_provider()
+        provider = self.get_mock_provider()
         result = provider.confirm_payment(external_id='MOCK-ABC123')
         self.assertTrue(result.success)
         self.assertEqual(result.code, 'MOCK_CONFIRMED')
 
     def test_confirm_failure(self):
-        provider = self._get_provider(force_failure=True)
+        provider = self.get_mock_provider(force_failure=True)
         result = provider.confirm_payment(external_id='MOCK-ABC123')
         self.assertFalse(result.success)
         self.assertEqual(result.code, 'MOCK_CONFIRM_REJECTED')
 
     def test_external_id_is_unique_per_call(self):
-        provider = self._get_provider()
+        provider = self.get_mock_provider()
         r1 = provider.initiate_payment(amount=Decimal('5.00'), currency='PEN', reference='R1')
         r2 = provider.initiate_payment(amount=Decimal('5.00'), currency='PEN', reference='R2')
         self.assertNotEqual(r1.external_id, r2.external_id)
