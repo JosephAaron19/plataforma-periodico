@@ -226,16 +226,29 @@ class ReadingSessionPageView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Ensure the file belongs to the same company as the edition to block cross-company hijacking
-        if page.archivo.empresa_id != edition.empresa_id:
+        # 5b. Validate that archivo belongs to the same company (cross-company IDOR protection)
+        archivo = page.archivo
+        if archivo.empresa_id is not None and archivo.empresa_id != edition.empresa_id:
+            AuditService.record_event(
+                usuario=user,
+                emp_id=edition.empresa_id,
+                modulo=AuditoriaModulo.M08,
+                accion=AuditoriaAccion.ACCESO_LECTURA_DENEGADO,
+                entidad="EdicionPagina",
+                entidad_id=str(page.id),
+                resultado=AuditoriaResultado.RECHAZADO,
+                motivo="El archivo de la página pertenece a una empresa distinta a la de la edición.",
+                ip_address=ip_addr,
+                user_agent=ua_str
+            )
             return Response(
-                {"error": "El archivo de la página no pertenece a la empresa editora de la edición."},
+                {"error": "El recurso solicitado no pertenece a esta edición."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         # 6. Deliver page image file protectedly using FileResponse from private storage
         try:
-            file_path = StorageService.get_private_absolute_path(page.archivo.ruta_storage)
+            file_path = StorageService.get_private_absolute_path(archivo.ruta_storage)
             if not file_path.exists() or not file_path.is_file():
                 return Response(
                     {"error": "El archivo de imagen física no se encuentra disponible en el almacenamiento."},
@@ -262,6 +275,12 @@ class ReadingSessionPageView(APIView):
 
             response = FileResponse(open(file_path, 'rb'), content_type='image/jpeg')
             return response
+        except ValueError as e:
+            # Raised by StorageService on path traversal attempts
+            return Response(
+                {"error": "Ruta de archivo inválida."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             return Response(
                 {"error": f"Error al recuperar el archivo protegido: {str(e)}"},

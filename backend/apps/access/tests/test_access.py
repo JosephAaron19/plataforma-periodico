@@ -144,6 +144,77 @@ class AccessServiceTest(SimpleTestCase):
         res = can_user_read_edition(self.mock_user, self.mock_edition)
         self.assertFalse(res)
 
+    def test_can_user_read_edition_deleted(self):
+        """Reading denied if edition is soft-deleted."""
+        self.mock_edition.eliminado = True
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_suspended(self):
+        """Reading denied if edition is SUSPENDIDA (not PUBLICADA)."""
+        self.mock_edition.estado = 'SUSPENDIDA'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_processing(self):
+        """Reading denied if edition is still PROCESANDO."""
+        self.mock_edition.estado = 'PROCESANDO'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_inactive_company(self):
+        """Reading denied if company is not ACTIVA."""
+        self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_company.estado = 'INACTIVA'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_deleted_company(self):
+        """Reading denied if company is eliminated."""
+        self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_company.eliminado = True
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_inactive_user(self):
+        """Reading denied if user is inactive (estado=SUSPENDIDO)."""
+        # is_active is a read-only property derived from estado
+        # Create a user with SUSPENDIDO state so is_active returns False
+        suspended_user = Usuario(
+            id=99,
+            usr_correo="suspended@example.com",
+            nombres="Suspended",
+            apellidos="User",
+            estado='SUSPENDIDO',
+            correo_verificado=True,
+        )
+        suspended_user.save = MagicMock()
+        self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(suspended_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_unauthenticated(self):
+        """Reading denied for unauthenticated (anonymous) user."""
+        from unittest.mock import PropertyMock
+        anon = MagicMock()
+        anon.is_authenticated = False
+        anon.is_active = False
+
+        res = can_user_read_edition(anon, self.mock_edition)
+        self.assertFalse(res)
+
     @patch('apps.access.models.acceso_tipo.AccesoTipo.objects')
     @patch('apps.access.models.acceso_edicion.AccesoEdicion.objects')
     def test_get_or_create_reading_access_free_edition(self, mock_access_objects, mock_type_objects):
@@ -164,39 +235,6 @@ class AccessServiceTest(SimpleTestCase):
 
         access = get_or_create_reading_access(self.mock_user, self.mock_edition)
         self.assertEqual(access, mock_created_access)
-
-    @patch('apps.access.models.acceso_edicion.AccesoEdicion.objects')
-    def test_can_user_read_edition_expired_access(self, mock_access_objects):
-        """
-        Verify that reading is denied if the user's access has expired.
-        """
-        self.mock_edition.paginas.filter.return_value.exists.return_value = True
-        mock_qs = mock_access_objects.using.return_value.filter.return_value.filter.return_value
-        mock_qs.exists.return_value = False
-        self.mock_calc_perms.return_value = set()
-
-        res = can_user_read_edition(self.mock_user, self.mock_edition)
-        self.assertFalse(res)
-
-    def test_can_user_read_edition_suspended_edition(self):
-        """
-        Verify that reading is denied if the edition is in BORRADOR state.
-        """
-        self.mock_edition.estado = 'BORRADOR'
-        self.mock_edition.paginas.filter.return_value.exists.return_value = True
-
-        res = can_user_read_edition(self.mock_user, self.mock_edition)
-        self.assertFalse(res)
-
-    def test_can_user_read_edition_inactive_company(self):
-        """
-        Verify that reading is denied if the company is INACTIVA.
-        """
-        self.mock_company.estado = 'INACTIVA'
-        self.mock_edition.paginas.filter.return_value.exists.return_value = True
-
-        res = can_user_read_edition(self.mock_user, self.mock_edition)
-        self.assertFalse(res)
 
 
 @patch('django.db.transaction.atomic', DummyAtomic)

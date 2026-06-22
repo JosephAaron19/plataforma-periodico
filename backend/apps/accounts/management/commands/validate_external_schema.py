@@ -5,7 +5,7 @@ class Command(BaseCommand):
     help = 'Validates connection to the external PostgreSQL database and checks the schema pdg integrity (exactly 54 tables and 6 accounts tables).'
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.WARNING("=== INICIANDO VALIDACIÓN MANUAL DEL ESQUEMA EXTERNO ==="))
+        self.stdout.write(self.style.WARNING("=== INICIANDO VALIDACION MANUAL DEL ESQUEMA EXTERNO ==="))
         
         db_alias = 'periodico_db'
         if db_alias not in connections:

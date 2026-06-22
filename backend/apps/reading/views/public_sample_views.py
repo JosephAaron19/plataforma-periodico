@@ -47,25 +47,19 @@ class PublicSamplePageView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # 4. Find page record
+        # 4. Find page record - only pages explicitly marked as sample pages (edp_es_muestra=True)
         try:
             page = EdicionPagina.objects.using('periodico_db').select_related('archivo').get(
                 edicion=edition,
                 edp_numero_pagina=page_number,
                 edp_es_actual=True,
-                edp_estado='GENERADA'
+                edp_estado='GENERADA',
+                edp_es_muestra=True
             )
         except EdicionPagina.DoesNotExist:
             return Response(
                 {"error": f"La página {page_number} no se encuentra disponible para visualización."},
                 status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Ensure the file belongs to the same company as the edition to block cross-company hijacking
-        if page.archivo.empresa_id != edition.empresa_id:
-            return Response(
-                {"error": "El archivo de la página no pertenece a la empresa editora de la edición."},
-                status=status.HTTP_403_FORBIDDEN
             )
 
         # 5. Serve the private page image directly via FileResponse
@@ -78,6 +72,12 @@ class PublicSamplePageView(APIView):
                 )
 
             return FileResponse(open(file_path, 'rb'), content_type='image/jpeg')
+        except ValueError:
+            # Raised by StorageService for path traversal attempts or invalid paths
+            return Response(
+                {"error": "Ruta de archivo inválida."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             return Response(
                 {"error": f"Error al servir la página de muestra: {str(e)}"},
