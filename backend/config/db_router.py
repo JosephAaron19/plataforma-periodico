@@ -7,7 +7,7 @@ class PeriodicoRouter:
     """
     route_app_labels = {
         'accounts', 'companies', 'authorization', 'plans', 'editions', 
-        'files', 'processing', 'purchases', 'payments', 'access_control', 
+        'files', 'processing', 'purchases', 'payments', 'access', 
         'reading', 'incidents', 'notifications', 'audit', 'security', 
         'content', 'seo', 'configuration', 'periodico'
     }

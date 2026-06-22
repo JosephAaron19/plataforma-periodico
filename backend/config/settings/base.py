@@ -55,7 +55,7 @@ INSTALLED_APPS = [
     'apps.processing',
     'apps.purchases',
     'apps.payments',
-    'apps.access_control',
+    'apps.access',
     'apps.reading',
     'apps.incidents',
     'apps.notifications',

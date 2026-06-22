@@ -56,9 +56,9 @@ class Command(BaseCommand):
                         f"Tablas del módulo 'accounts' faltantes en el esquema 'pdg': {', '.join(missing_tables)}"
                     )
                 
-                self.stdout.write(self.style.SUCCESS("✓ Las 6 tablas del módulo 'accounts' están presentes."))
-                self.stdout.write(self.style.SUCCESS("✓ Se encontraron exactamente las 54 tablas del esquema."))
-                self.stdout.write(self.style.SUCCESS("=== VALIDACIÓN DE ESQUEMA EXTERNO EXITOSA ==="))
+                self.stdout.write(self.style.SUCCESS("[OK] Las 6 tablas del modulo 'accounts' estan presentes."))
+                self.stdout.write(self.style.SUCCESS("[OK] Se encontraron exactamente las 54 tablas del esquema."))
+                self.stdout.write(self.style.SUCCESS("=== VALIDACION DE ESQUEMA EXTERNO EXITOSA ==="))
                 
         except Exception as e:
             raise CommandError(f"Error durante la validación del esquema: {str(e)}")

@@ -12,6 +12,10 @@ urlpatterns = [
     path('api/v1/plans/', include('apps.plans.urls')),
     # Editions endpoints
     path('api/v1/', include('apps.editions.urls')),
+    # Access endpoints
+    path('api/v1/', include('apps.access.urls')),
+    # Reading endpoints
+    path('api/v1/', include('apps.reading.urls')),
     # Versioned API Health Check endpoints
 
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
