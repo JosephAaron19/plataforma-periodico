@@ -61,6 +61,13 @@ class PublicSamplePageView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # Ensure the file belongs to the same company as the edition to block cross-company hijacking
+        if page.archivo.empresa_id != edition.empresa_id:
+            return Response(
+                {"error": "El archivo de la página no pertenece a la empresa editora de la edición."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # 5. Serve the private page image directly via FileResponse
         try:
             file_path = StorageService.get_private_absolute_path(page.archivo.ruta_storage)

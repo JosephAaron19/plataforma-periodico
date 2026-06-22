@@ -56,12 +56,15 @@ class LibraryListView(APIView):
             if company_ids_with_permission:
                 q_conditions |= models.Q(empresa_id__in=company_ids_with_permission)
 
-        # Retrieve published, non-deleted editions from active, non-deleted companies
+        # Retrieve published, non-deleted editions from active, non-deleted companies,
+        # ensuring they have at least one processed page.
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(
             estado='PUBLICADA',
             eliminado=False,
             empresa__estado='ACTIVA',
-            empresa__eliminado=False
+            empresa__eliminado=False,
+            paginas__edp_es_actual=True,
+            paginas__edp_estado='GENERADA'
         ).filter(q_conditions).distinct().order_by('-fecha_publicacion')
 
         serializer = LibraryEditionSerializer(editions, many=True)

@@ -183,7 +183,7 @@ class ReadingSessionViewsTest(SimpleTestCase):
         """
         mock_session_objects.using.return_value.select_related.return_value.get.return_value = self.mock_session
         
-        mock_file = Archivo(id=99, ruta_storage="tenant_10/fake.jpg", nombre_original="fake.jpg")
+        mock_file = Archivo(id=99, empresa=self.mock_company, ruta_storage="tenant_10/fake.jpg", nombre_original="fake.jpg")
         mock_page = EdicionPagina(id=777, edicion=self.mock_edition, archivo=mock_file, edp_numero_pagina=1, edp_es_actual=True, edp_estado="GENERADA")
         
         mock_page_objects.using.return_value.select_related.return_value.get.return_value = mock_page
@@ -283,6 +283,55 @@ class ReadingSessionViewsTest(SimpleTestCase):
         self.assertEqual(mock_progress.porcentaje, 50.00)
         mock_audit.assert_called_once()
 
+    @patch('apps.reading.models.sesion_lectura.SesionLectura.objects')
+    @patch('apps.editions.models.edicion_pagina.EdicionPagina.objects')
+    def test_serve_page_file_company_mismatch(self, mock_page_objects, mock_session_objects):
+        """
+        Verify serving page fails with 403 Forbidden if the page's file belongs to another company.
+        """
+        mock_session_objects.using.return_value.select_related.return_value.get.return_value = self.mock_session
+        
+        # File belongs to company 999 instead of 10
+        mock_file = Archivo(id=99, empresa_id=999, ruta_storage="tenant_999/fake.jpg", nombre_original="fake.jpg")
+        mock_page = EdicionPagina(id=777, edicion=self.mock_edition, archivo=mock_file, edp_numero_pagina=1, edp_es_actual=True, edp_estado="GENERADA")
+        mock_page_objects.using.return_value.select_related.return_value.get.return_value = mock_page
+
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from apps.reading.views.reading_session_views import ReadingSessionPageView
+
+        factory = APIRequestFactory()
+        request = factory.get(f'/api/v1/reading-sessions/{self.session_id}/pages/1/')
+        force_authenticate(request, user=self.mock_user)
+
+        view = ReadingSessionPageView.as_view()
+        response = view(request, session_id=self.session_id, page_number=1)
+        self.responses_to_close.append(response)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("no pertenece a la empresa editora", response.data['error'])
+
+    @patch('apps.reading.models.sesion_lectura.SesionLectura.objects')
+    def test_update_progress_of_other_user(self, mock_session_objects):
+        """
+        Verify progress update fails with 403 if user is not the session owner.
+        """
+        self.mock_session.usuario = Usuario(id=999)
+        self.mock_session.usuario_id = 999
+        mock_session_objects.using.return_value.select_related.return_value.get.return_value = self.mock_session
+
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from apps.reading.views.reading_session_views import ReadingSessionProgressView
+
+        factory = APIRequestFactory()
+        request = factory.post(f'/api/v1/reading-sessions/{self.session_id}/progress/', data={"page_number": 5}, format='json')
+        force_authenticate(request, user=self.mock_user)
+
+        view = ReadingSessionProgressView.as_view()
+        response = view(request, session_id=self.session_id)
+        self.responses_to_close.append(response)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 @patch('django.db.transaction.atomic', DummyAtomic)
 class PublicSampleViewsTest(SimpleTestCase):
@@ -362,7 +411,7 @@ class PublicSampleViewsTest(SimpleTestCase):
         """
         mock_edition_objects.using.return_value.select_related.return_value.get.return_value = self.mock_edition
         
-        mock_file = Archivo(id=99, ruta_storage="tenant_10/sample_1.jpg", nombre_original="sample_1.jpg")
+        mock_file = Archivo(id=99, empresa=self.mock_company, ruta_storage="tenant_10/sample_1.jpg", nombre_original="sample_1.jpg")
         mock_page = EdicionPagina(id=777, edicion=self.mock_edition, archivo=mock_file, edp_numero_pagina=2, edp_es_actual=True, edp_estado="GENERADA")
         mock_page_objects.using.return_value.select_related.return_value.get.return_value = mock_page
 
@@ -399,3 +448,71 @@ class PublicSampleViewsTest(SimpleTestCase):
         self.responses_to_close.append(response)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch('apps.editions.models.edicion.Edicion.objects')
+    @patch('apps.editions.models.edicion_pagina.EdicionPagina.objects')
+    def test_public_sample_page_file_company_mismatch(self, mock_page_objects, mock_edition_objects):
+        """
+        Verify sample page request is rejected with 403 Forbidden if page's file belongs to another company.
+        """
+        mock_edition_objects.using.return_value.select_related.return_value.get.return_value = self.mock_edition
+        
+        # File belongs to company 999 instead of 10
+        mock_file = Archivo(id=99, empresa_id=999, ruta_storage="tenant_999/sample_2.jpg", nombre_original="sample_2.jpg")
+        mock_page = EdicionPagina(id=777, edicion=self.mock_edition, archivo=mock_file, edp_numero_pagina=2, edp_es_actual=True, edp_estado="GENERADA")
+        mock_page_objects.using.return_value.select_related.return_value.get.return_value = mock_page
+
+        from rest_framework.test import APIRequestFactory
+        from apps.reading.views.public_sample_views import PublicSamplePageView
+
+        factory = APIRequestFactory()
+        request = factory.get('/api/v1/public/editions/el-tiempo/edicion-1/sample/pages/2/')
+
+        view = PublicSamplePageView.as_view()
+        response = view(request, company_slug='el-tiempo', edition_slug='edicion-1', page_number=2)
+        self.responses_to_close.append(response)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("no pertenece a la empresa editora", response.data['error'])
+
+    @patch('apps.editions.models.edicion.Edicion.objects')
+    def test_public_sample_page_edition_not_published(self, mock_edition_objects):
+        """
+        Verify sample page returns 404/not allowed if edition is not published.
+        """
+        from django.core.exceptions import ObjectDoesNotExist
+        mock_edition_objects.using.return_value.select_related.return_value.get.side_effect = Edicion.DoesNotExist
+
+        from rest_framework.test import APIRequestFactory
+        from apps.reading.views.public_sample_views import PublicSamplePageView
+
+        factory = APIRequestFactory()
+        request = factory.get('/api/v1/public/editions/el-tiempo/edicion-1/sample/pages/2/')
+
+        view = PublicSamplePageView.as_view()
+        response = view(request, company_slug='el-tiempo', edition_slug='edicion-1', page_number=2)
+        self.responses_to_close.append(response)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('apps.editions.models.edicion.Edicion.objects')
+    def test_public_sample_page_edition_no_sample_allowed(self, mock_edition_objects):
+        """
+        Verify sample page returns 403 if permits_muestra is False.
+        """
+        self.mock_edition.permite_muestra = False
+        mock_edition_objects.using.return_value.select_related.return_value.get.return_value = self.mock_edition
+
+        from rest_framework.test import APIRequestFactory
+        from apps.reading.views.public_sample_views import PublicSamplePageView
+
+        factory = APIRequestFactory()
+        request = factory.get('/api/v1/public/editions/el-tiempo/edicion-1/sample/pages/2/')
+
+        view = PublicSamplePageView.as_view()
+        response = view(request, company_slug='el-tiempo', edition_slug='edicion-1', page_number=2)
+        self.responses_to_close.append(response)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("no permite visualización de páginas de muestra", response.data['error'])
+

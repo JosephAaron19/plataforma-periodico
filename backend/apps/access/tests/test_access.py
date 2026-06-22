@@ -165,6 +165,39 @@ class AccessServiceTest(SimpleTestCase):
         access = get_or_create_reading_access(self.mock_user, self.mock_edition)
         self.assertEqual(access, mock_created_access)
 
+    @patch('apps.access.models.acceso_edicion.AccesoEdicion.objects')
+    def test_can_user_read_edition_expired_access(self, mock_access_objects):
+        """
+        Verify that reading is denied if the user's access has expired.
+        """
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+        mock_qs = mock_access_objects.using.return_value.filter.return_value.filter.return_value
+        mock_qs.exists.return_value = False
+        self.mock_calc_perms.return_value = set()
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_suspended_edition(self):
+        """
+        Verify that reading is denied if the edition is in BORRADOR state.
+        """
+        self.mock_edition.estado = 'BORRADOR'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
+    def test_can_user_read_edition_inactive_company(self):
+        """
+        Verify that reading is denied if the company is INACTIVA.
+        """
+        self.mock_company.estado = 'INACTIVA'
+        self.mock_edition.paginas.filter.return_value.exists.return_value = True
+
+        res = can_user_read_edition(self.mock_user, self.mock_edition)
+        self.assertFalse(res)
+
 
 @patch('django.db.transaction.atomic', DummyAtomic)
 @patch('apps.access.views.library_views.is_platform_superadmin')
