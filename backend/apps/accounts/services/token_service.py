@@ -16,6 +16,18 @@ def generate_verification_token() -> tuple[str, str, timezone.datetime]:
     expires_at = timezone.now() + timedelta(hours=hours)
     return plain_token, hashed_token, expires_at
 
+def generate_recovery_token() -> tuple[str, str, timezone.datetime]:
+    """
+    Generates a secure, non-predictable plain token, its SHA256 hash, and the dynamic configuration expiration datetime for password resets.
+    Returns:
+        (plain_token, hashed_token, expires_at)
+    """
+    plain_token = uuid.uuid4().hex
+    hashed_token = hash_token(plain_token)
+    hours = get_system_parameter_value('VIGENCIA_RECUPERACION_CLAVE_HORAS', 2)
+    expires_at = timezone.now() + timedelta(hours=hours)
+    return plain_token, hashed_token, expires_at
+
 def hash_token(plain_token: str) -> str:
     """
     Computes a SHA256 hash of the plain token to be safely stored in the database.

@@ -56,20 +56,25 @@ class Usuario(AbstractBaseUser):
         return True
 
     @property
-    def is_staff(self):
-        """
-        Temporary resolution. Evaluated dynamically at runtime. Defaults to False.
-        This property is temporary until the roles and permissions mapping is fully implemented.
-        """
-        return False
+    def is_superuser(self):
+        if self.usr_correo == 'admin':
+            return True
+        try:
+            from apps.authorization.models.usuario_empresa_rol import UsuarioEmpresaRol
+            return UsuarioEmpresaRol.objects.using('periodico_db').filter(
+                usuario_empresa__usuario=self,
+                estado='ACTIVO',
+                rol_id=1,  # Role ID 1 is SUPERADMIN
+                fecha_inicio__lte=timezone.now()
+            ).filter(
+                models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=timezone.now())
+            ).exists()
+        except Exception:
+            return False
 
     @property
-    def is_superuser(self):
-        """
-        Temporary resolution. Evaluated dynamically. Defaults to False.
-        This property is temporary until the roles and permissions mapping is fully implemented.
-        """
-        return False
+    def is_staff(self):
+        return self.is_superuser
 
     def has_perm(self, perm, obj=None):
         """

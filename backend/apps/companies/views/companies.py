@@ -26,6 +26,7 @@ class CompanyListCreateView(generics.ListCreateAPIView):
     GET: List authorized companies for the user (or all if platform superadmin).
     POST: Create a new company (Platform Superadmin only).
     """
+    pagination_class = None
     def get_permissions(self):
         if self.request.method == 'POST':
             return [IsPlatformSuperadmin()]

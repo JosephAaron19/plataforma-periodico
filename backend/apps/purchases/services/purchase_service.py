@@ -420,6 +420,16 @@ def confirm_purchase_mock(
                 logger.info(
                     f"confirm_purchase_mock: com={compra.id} pag={pago.id} acc={acceso.id} CONFIRMADO."
                 )
+
+                # Trigger receipt email sending task asynchronously
+                try:
+                    from apps.purchases.tasks.receipt_email_tasks import send_receipt_email_task
+                    send_receipt_email_task.delay(compra.id)
+                except Exception as email_err:
+                    logger.error(
+                        f"confirm_purchase_mock: Fallo al encolar send_receipt_email_task para compra={compra.id}: {email_err}"
+                    )
+
                 return {
                     'com_id': compra.id,
                     'pag_id': pago.id,

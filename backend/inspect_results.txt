@@ -1,0 +1,238 @@
+=== TODAS LAS TABLAS EN PDG ===
+- acc_acceso_contenido
+- ahi_acceso_historial
+- arc_archivo
+- atr_acceso_tipo
+- aud_auditoria
+- blo_bloqueo_usuario
+- cat_catalogo
+- ccp_conciliacion_pago
+- cfg_configuracion
+- com_compra
+- con_contenido_publico
+- cva_catalogo_valor
+- ecf_empresa_configuracion
+- eda_edicion_archivo
+- edi_edicion
+- edp_edicion_pagina
+- ehi_edicion_historial
+- ehi_empresa_historial
+- emp_empresa
+- epl_empresa_plan
+- epr_edicion_programacion
+- eve_evento_seguridad
+- evi_empresa_identidad
+- iad_incidencia_adjunto
+- ina_intento_acceso
+- inc_incidencia
+- inv_invitacion_usuario
+- ise_incidencia_seguimiento
+- not_notificacion
+- pag_pago
+- par_parametro_sistema
+- pcl_pagina_consulta
+- per_permiso
+- pge_pago_evento
+- pla_plan
+- plf_plan_funcionalidad
+- ppr_proveedor_pago
+- pre_procesamiento_error
+- prf_perfil
+- pri_procesamiento_intento
+- prl_progreso_lectura
+- pro_procesamiento
+- rec_recuperacion_cuenta
+- rho_rol_historial
+- rol_rol
+- rpe_rol_permiso
+- seo_metadato
+- ses_sesion
+- sle_sesion_lectura
+- uep_usuario_empresa
+- uepr_usuario_empresa_permiso
+- uer_usuario_empresa_rol
+- usr_usuario
+- ver_verificacion_correo
+
+=== DETALLE DE TABLAS DE INTERÉS ===
+
+Tablas: acc_acceso_contenido
+  Columnas:
+    acc_id (bigint) - Nullable: NO - Default: nextval('acc_acceso_contenido_acc_id_seq'::regclass)
+    usr_id (bigint) - Nullable: NO - Default: None
+    edi_id (bigint) - Nullable: NO - Default: None
+    com_id (bigint) - Nullable: YES - Default: None
+    atr_id (bigint) - Nullable: NO - Default: None
+    acc_fecha_inicio (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    acc_fecha_fin (timestamp with time zone) - Nullable: YES - Default: None
+    acc_estado (character varying) - Nullable: NO - Default: 'ACTIVO'::character varying
+    acc_origen_referencia (character varying) - Nullable: YES - Default: None
+    acc_otorgado_por (bigint) - Nullable: YES - Default: None
+    acc_motivo (character varying) - Nullable: YES - Default: None
+    acc_fecha_creacion (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    acc_fecha_actualizacion (timestamp with time zone) - Nullable: YES - Default: None
+  Foreign Keys:
+    usr_id -> usr_usuario(usr_id)
+    edi_id -> edi_edicion(edi_id)
+    com_id -> com_compra(com_id)
+    atr_id -> atr_acceso_tipo(atr_id)
+    acc_otorgado_por -> usr_usuario(usr_id)
+    com_id -> com_compra(usr_id)
+    com_id -> com_compra(edi_id)
+    usr_id -> com_compra(com_id)
+    usr_id -> com_compra(usr_id)
+    usr_id -> com_compra(edi_id)
+    edi_id -> com_compra(com_id)
+    edi_id -> com_compra(usr_id)
+    edi_id -> com_compra(edi_id)
+  Unique Constraints:
+    uq_acc_id_usuario_edicion (acc_id)
+    uq_acc_id_usuario_edicion (usr_id)
+    uq_acc_id_usuario_edicion (edi_id)
+
+Tablas: ahi_acceso_historial
+  Columnas:
+    ahi_id (bigint) - Nullable: NO - Default: nextval('ahi_acceso_historial_ahi_id_seq'::regclass)
+    acc_id (bigint) - Nullable: NO - Default: None
+    ahi_estado_anterior (character varying) - Nullable: YES - Default: None
+    ahi_estado_nuevo (character varying) - Nullable: NO - Default: None
+    ahi_motivo (character varying) - Nullable: YES - Default: None
+    ahi_realizado_por (bigint) - Nullable: YES - Default: None
+    ahi_proceso_origen (character varying) - Nullable: YES - Default: None
+    ahi_fecha (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+  Foreign Keys:
+    acc_id -> acc_acceso_contenido(acc_id)
+    ahi_realizado_por -> usr_usuario(usr_id)
+
+Tablas: atr_acceso_tipo
+  Columnas:
+    atr_id (bigint) - Nullable: NO - Default: nextval('atr_acceso_tipo_atr_id_seq'::regclass)
+    atr_codigo (character varying) - Nullable: NO - Default: None
+    atr_nombre (character varying) - Nullable: NO - Default: None
+    atr_descripcion (character varying) - Nullable: YES - Default: None
+    atr_estado (character varying) - Nullable: NO - Default: 'ACTIVO'::character varying
+  Unique Constraints:
+    uq_atr_codigo (atr_codigo)
+    uq_atr_nombre (atr_nombre)
+
+Tablas: ccp_conciliacion_pago
+  Columnas:
+    ccp_id (bigint) - Nullable: NO - Default: nextval('ccp_conciliacion_pago_ccp_id_seq'::regclass)
+    pag_id (bigint) - Nullable: NO - Default: None
+    ccp_estado_local (character varying) - Nullable: YES - Default: None
+    ccp_estado_externo (character varying) - Nullable: YES - Default: None
+    ccp_monto_local (numeric) - Nullable: YES - Default: None
+    ccp_monto_externo (numeric) - Nullable: YES - Default: None
+    ccp_coincide (boolean) - Nullable: NO - Default: false
+    ccp_observacion (character varying) - Nullable: YES - Default: None
+    ccp_realizado_por (bigint) - Nullable: YES - Default: None
+    ccp_fecha (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+  Foreign Keys:
+    pag_id -> pag_pago(pag_id)
+    ccp_realizado_por -> usr_usuario(usr_id)
+
+Tablas: com_compra
+  Columnas:
+    com_id (bigint) - Nullable: NO - Default: nextval('com_compra_com_id_seq'::regclass)
+    usr_id (bigint) - Nullable: NO - Default: None
+    emp_id (bigint) - Nullable: NO - Default: None
+    edi_id (bigint) - Nullable: NO - Default: None
+    com_referencia_interna (character varying) - Nullable: NO - Default: None
+    com_precio_unitario (numeric) - Nullable: NO - Default: None
+    com_monto_total (numeric) - Nullable: NO - Default: None
+    com_moneda (character) - Nullable: NO - Default: 'PEN'::bpchar
+    com_estado (character varying) - Nullable: NO - Default: 'PENDIENTE'::character varying
+    com_origen (character varying) - Nullable: NO - Default: 'WEB'::character varying
+    com_fecha_creacion (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    com_fecha_confirmacion (timestamp with time zone) - Nullable: YES - Default: None
+    com_fecha_cancelacion (timestamp with time zone) - Nullable: YES - Default: None
+    com_motivo_cancelacion (character varying) - Nullable: YES - Default: None
+    com_acceso_habilitado (boolean) - Nullable: NO - Default: false
+  Foreign Keys:
+    usr_id -> usr_usuario(usr_id)
+    emp_id -> emp_empresa(emp_id)
+    edi_id -> edi_edicion(edi_id)
+    edi_id -> edi_edicion(emp_id)
+    emp_id -> edi_edicion(edi_id)
+    emp_id -> edi_edicion(emp_id)
+  Unique Constraints:
+    uq_com_referencia_interna (com_referencia_interna)
+    uq_com_id_usuario_edicion (com_id)
+    uq_com_id_usuario_edicion (usr_id)
+    uq_com_id_usuario_edicion (edi_id)
+
+Tablas: ina_intento_acceso
+  Columnas:
+    ina_id (bigint) - Nullable: NO - Default: nextval('ina_intento_acceso_ina_id_seq'::regclass)
+    usr_id (bigint) - Nullable: YES - Default: None
+    ina_correo_ingresado (character varying) - Nullable: YES - Default: None
+    ina_direccion_ip (inet) - Nullable: YES - Default: None
+    ina_agente_usuario (text) - Nullable: YES - Default: None
+    ina_fecha (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    ina_resultado (character varying) - Nullable: NO - Default: None
+    ina_motivo (character varying) - Nullable: YES - Default: None
+    ina_bloqueo_generado (boolean) - Nullable: NO - Default: false
+  Foreign Keys:
+    usr_id -> usr_usuario(usr_id)
+
+Tablas: pag_pago
+  Columnas:
+    pag_id (bigint) - Nullable: NO - Default: nextval('pag_pago_pag_id_seq'::regclass)
+    com_id (bigint) - Nullable: NO - Default: None
+    ppr_id (bigint) - Nullable: NO - Default: None
+    pag_numero_intento (integer) - Nullable: NO - Default: None
+    pag_identificador_externo (character varying) - Nullable: YES - Default: None
+    pag_monto (numeric) - Nullable: NO - Default: None
+    pag_moneda (character) - Nullable: NO - Default: 'PEN'::bpchar
+    pag_estado (character varying) - Nullable: NO - Default: 'CREADO'::character varying
+    pag_estado_externo (character varying) - Nullable: YES - Default: None
+    pag_medio_pago (character varying) - Nullable: YES - Default: None
+    pag_marca_tarjeta (character varying) - Nullable: YES - Default: None
+    pag_ultimos_cuatro (character varying) - Nullable: YES - Default: None
+    pag_codigo_respuesta (character varying) - Nullable: YES - Default: None
+    pag_mensaje_respuesta (character varying) - Nullable: YES - Default: None
+    pag_fecha_inicio (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    pag_fecha_confirmacion (timestamp with time zone) - Nullable: YES - Default: None
+    pag_fecha_actualizacion (timestamp with time zone) - Nullable: YES - Default: None
+  Foreign Keys:
+    com_id -> com_compra(com_id)
+    ppr_id -> ppr_proveedor_pago(ppr_id)
+  Unique Constraints:
+    uq_pag_compra_intento (com_id)
+    uq_pag_compra_intento (pag_numero_intento)
+    uq_pag_identificador_externo (pag_identificador_externo)
+
+Tablas: pge_pago_evento
+  Columnas:
+    pge_id (bigint) - Nullable: NO - Default: nextval('pge_pago_evento_pge_id_seq'::regclass)
+    pag_id (bigint) - Nullable: YES - Default: None
+    ppr_id (bigint) - Nullable: NO - Default: None
+    pge_identificador_externo (character varying) - Nullable: NO - Default: None
+    pge_tipo_evento (character varying) - Nullable: NO - Default: None
+    pge_payload (jsonb) - Nullable: YES - Default: None
+    pge_fecha_evento (timestamp with time zone) - Nullable: YES - Default: None
+    pge_fecha_recepcion (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    pge_fecha_procesamiento (timestamp with time zone) - Nullable: YES - Default: None
+    pge_estado_procesamiento (character varying) - Nullable: NO - Default: 'RECIBIDO'::character varying
+    pge_intentos_procesamiento (integer) - Nullable: NO - Default: 0
+    pge_resultado (character varying) - Nullable: YES - Default: None
+    pge_motivo_rechazo (character varying) - Nullable: YES - Default: None
+  Foreign Keys:
+    pag_id -> pag_pago(pag_id)
+    ppr_id -> ppr_proveedor_pago(ppr_id)
+  Unique Constraints:
+    uq_pge_identificador_externo (pge_identificador_externo)
+
+Tablas: ppr_proveedor_pago
+  Columnas:
+    ppr_id (bigint) - Nullable: NO - Default: nextval('ppr_proveedor_pago_ppr_id_seq'::regclass)
+    ppr_codigo (character varying) - Nullable: NO - Default: None
+    ppr_nombre (character varying) - Nullable: NO - Default: None
+    ppr_descripcion (character varying) - Nullable: YES - Default: None
+    ppr_estado (character varying) - Nullable: NO - Default: 'ACTIVO'::character varying
+    ppr_es_predeterminado (boolean) - Nullable: NO - Default: false
+    ppr_fecha_creacion (timestamp with time zone) - Nullable: NO - Default: CURRENT_TIMESTAMP
+    ppr_fecha_actualizacion (timestamp with time zone) - Nullable: YES - Default: None
+  Unique Constraints:
+    uq_ppr_codigo (ppr_codigo)
+    uq_ppr_nombre (ppr_nombre)

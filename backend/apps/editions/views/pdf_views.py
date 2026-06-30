@@ -58,6 +58,7 @@ class CompanyEditionPDFView(generics.GenericAPIView):
             raise ValidationError({"detail": "No se proporcionó ningún archivo en la solicitud."})
         
         uploaded_file = request.FILES['file']
+        cover_file = request.FILES.get('portada')
         
         ip_addr = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT')
@@ -69,6 +70,7 @@ class CompanyEditionPDFView(generics.GenericAPIView):
                 edition_id=int(edi_id),
                 user=request.user,
                 uploaded_file=uploaded_file,
+                cover_file=cover_file,
                 ip_address=ip_addr,
                 user_agent=user_agent
             )

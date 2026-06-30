@@ -26,3 +26,13 @@ urlpatterns = [
     path('api/v1/health/database/', DatabaseHealthCheckView.as_view(), name='health_database'),
     path('api/v1/health/redis/', RedisHealthCheckView.as_view(), name='health_redis'),
 ]
+
+from django.conf import settings
+from django.conf.urls.static import static
+
+if settings.DEBUG:
+    # Ensure MEDIA_URL has correct slash prefix for static helper
+    media_url = settings.MEDIA_URL
+    if not media_url.startswith('/'):
+        media_url = '/' + media_url
+    urlpatterns += static(media_url, document_root=settings.MEDIA_ROOT)

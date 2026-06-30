@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = EmailVerifySerializer(data=request.data)

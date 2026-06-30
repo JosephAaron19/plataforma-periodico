@@ -168,34 +168,47 @@ def process_pdf_attempt(intento_id: int) -> bool:
                 procesamiento.porcentaje_avance = Decimal(paginas_generadas) / Decimal(page_count) * Decimal(100)
                 procesamiento.save(using='periodico_db')
 
-        # 3. Render and save cover (PORTADA) from page 0
-        first_page = doc.load_page(0)
-        pix_cover = first_page.get_pixmap(dpi=150)
-        cover_data = pix_cover.tobytes("jpeg")
+        # Check if a manual cover was uploaded (we identify it by not having cover.jpg as original filename)
+        has_manual_cover = EdicionArchivo.objects.using('periodico_db').filter(
+            edicion=edition,
+            tipo_archivo='PORTADA',
+            es_actual=True
+        ).exclude(archivo__nombre_original='cover.jpg').exists()
 
-        # Validate cover resource limits
-        if pix_cover.width > 3000 or pix_cover.height > 4000:
-            raise ValidationError(
-                "La imagen de portada generada excede las dimensiones máximas permitidas (3000x4000 px).",
-                code='EXCEDE_DIMENSIONES_IMAGEN'
-            )
-        if len(cover_data) > 5 * 1024 * 1024:
-            raise ValidationError(
-                "El tamaño de la imagen de portada generada excede el límite permitido de 5 MB.",
-                code='EXCEDE_TAMANO_IMAGEN'
-            )
+        saved_cover_path = None
+        cover_data = None
+        hash_cover = None
+        es_publico_portada = True
 
-        # Retrieve cover publicity policy from system configuration
-        es_publico_portada = get_system_parameter_value('PERMITIR_PORTADA_PUBLICA', True)
-        
-        cover_file = ContentFile(cover_data, name="cover.jpg")
-        if es_publico_portada:
-            saved_cover_path = StorageService.save_public_file(cover_file, company_id, "cover.jpg")
-        else:
-            saved_cover_path = StorageService.save_private_file(cover_file, company_id, "cover.jpg")
+        if not has_manual_cover:
+            # 3. Render and save cover (PORTADA) from page 0
+            first_page = doc.load_page(0)
+            pix_cover = first_page.get_pixmap(dpi=150)
+            cover_data = pix_cover.tobytes("jpeg")
+
+            # Validate cover resource limits
+            if pix_cover.width > 3000 or pix_cover.height > 4000:
+                raise ValidationError(
+                    "La imagen de portada generada excede las dimensiones máximas permitidas (3000x4000 px).",
+                    code='EXCEDE_DIMENSIONES_IMAGEN'
+                )
+            if len(cover_data) > 5 * 1024 * 1024:
+                raise ValidationError(
+                    "El tamaño de la imagen de portada generada excede el límite permitido de 5 MB.",
+                    code='EXCEDE_TAMANO_IMAGEN'
+                )
+
+            # Retrieve cover publicity policy from system configuration
+            es_publico_portada = get_system_parameter_value('PERMITIR_PORTADA_PUBLICA', True)
             
-        generated_files.append(saved_cover_path)
-        hash_cover = hashlib.sha256(cover_data).hexdigest()
+            cover_file = ContentFile(cover_data, name="cover.jpg")
+            if es_publico_portada:
+                saved_cover_path = StorageService.save_public_file(cover_file, company_id, "cover.jpg")
+            else:
+                saved_cover_path = StorageService.save_private_file(cover_file, company_id, "cover.jpg")
+                
+            generated_files.append(saved_cover_path)
+            hash_cover = hashlib.sha256(cover_data).hexdigest()
 
         # 4. Final atomic database transaction
         with transaction.atomic(using='periodico_db'):
@@ -211,21 +224,22 @@ def process_pdf_attempt(intento_id: int) -> bool:
             )
 
             # Deactivate previous cover records atomically
-            old_covers = EdicionArchivo.objects.using('periodico_db').filter(
-                edicion=edition,
-                tipo_archivo='PORTADA',
-                es_actual=True
-            )
-            for old_cov in old_covers:
-                old_cov.es_actual = False
-                old_cov.estado = 'REEMPLAZADO'
-                old_cov.fecha_reemplazo = timezone.now()
-                old_cov.motivo_reemplazo = 'Reemplazado por nuevo procesamiento'
-                old_cov.save(using='periodico_db')
+            if not has_manual_cover:
+                old_covers = EdicionArchivo.objects.using('periodico_db').filter(
+                    edicion=edition,
+                    tipo_archivo='PORTADA',
+                    es_actual=True
+                )
+                for old_cov in old_covers:
+                    old_cov.es_actual = False
+                    old_cov.estado = 'REEMPLAZADO'
+                    old_cov.fecha_reemplazo = timezone.now()
+                    old_cov.motivo_reemplazo = 'Reemplazado por nuevo procesamiento'
+                    old_cov.save(using='periodico_db')
 
-                old_cov_file = old_cov.archivo
-                old_cov_file.estado = 'REEMPLAZADO'
-                old_cov_file.save(using='periodico_db')
+                    old_cov_file = old_cov.archivo
+                    old_cov_file.estado = 'REEMPLAZADO'
+                    old_cov_file.save(using='periodico_db')
 
             # Create Archivo and EdicionPagina records for all pages
             for idx, pdata in enumerate(pages_to_create):
@@ -263,35 +277,36 @@ def process_pdf_attempt(intento_id: int) -> bool:
                 )
 
             # Create Archivo for cover
-            archivo_cover = Archivo.objects.using('periodico_db').create(
-                empresa_id=company_id,
-                creado_por=procesamiento.solicitado_por,
-                nombre_original="cover.jpg",
-                nombre_interno=os.path.basename(saved_cover_path),
-                extension='jpg',
-                tipo_mime='image/jpeg',
-                tamano_bytes=len(cover_data),
-                hash_sha256=hash_cover,
-                ruta_storage=saved_cover_path,
-                proveedor_storage='LOCAL',
-                contenedor='public' if es_publico_portada else 'private',
-                es_publico=es_publico_portada,
-                version=1,
-                estado='DISPONIBLE',
-                eliminado=False
-            )
+            if not has_manual_cover and saved_cover_path:
+                archivo_cover = Archivo.objects.using('periodico_db').create(
+                    empresa_id=company_id,
+                    creado_por=procesamiento.solicitado_por,
+                    nombre_original="cover.jpg",
+                    nombre_interno=os.path.basename(saved_cover_path),
+                    extension='jpg',
+                    tipo_mime='image/jpeg',
+                    tamano_bytes=len(cover_data),
+                    hash_sha256=hash_cover,
+                    ruta_storage=saved_cover_path,
+                    proveedor_storage='LOCAL',
+                    contenedor='public' if es_publico_portada else 'private',
+                    es_publico=es_publico_portada,
+                    version=1,
+                    estado='DISPONIBLE',
+                    eliminado=False
+                )
 
-            # Create EdicionArchivo association for cover
-            EdicionArchivo.objects.using('periodico_db').create(
-                edicion=edition,
-                archivo=archivo_cover,
-                tipo_archivo='PORTADA',
-                version=1,
-                es_actual=True,
-                estado='ACTIVO',
-                asignado_por=procesamiento.solicitado_por,
-                empresa_id=company_id
-            )
+                # Create EdicionArchivo association for cover
+                EdicionArchivo.objects.using('periodico_db').create(
+                    edicion=edition,
+                    archivo=archivo_cover,
+                    tipo_archivo='PORTADA',
+                    version=1,
+                    es_actual=True,
+                    estado='ACTIVO',
+                    asignado_por=procesamiento.solicitado_por,
+                    empresa_id=company_id
+                )
 
             # Set original PDF to DISPONIBLE
             original_pdf.estado = 'DISPONIBLE'

@@ -1,6 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.views import APIView
 from django.http import Http404
 from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.authorization.permissions.drf_permissions import (
@@ -176,6 +177,50 @@ class CompanyEditionDetailUpdateView(generics.GenericAPIView):
         output_serializer = EditionDetailSerializer(edition)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
 
+    def delete(self, request, emp_id, edi_id):
+        self.required_permission = 'EDICION_EDITAR'
+        self.check_permissions(request)
+        
+        edition = self.get_object()
+        
+        from django.utils import timezone
+        from apps.audit.services.audit_service import AuditService
+        from apps.audit.constants import AuditoriaAccion, AuditoriaModulo, AuditoriaResultado
+        from django.db import transaction
+        from apps.editions.models.edicion import Edicion
+        
+        now = timezone.now()
+        
+        with transaction.atomic(using='periodico_db'):
+            # Lock the record
+            edition = Edicion.objects.using('periodico_db').select_for_update().get(id=edition.id)
+            edition.eliminado = True
+            edition.fecha_eliminacion = now
+            edition.fecha_actualizacion = now
+            if request.user:
+                edition.actualizado_por = request.user
+            edition.save(using='periodico_db')
+            
+            # Record audit event
+            ip_addr = request.META.get('REMOTE_ADDR')
+            user_agent = request.META.get('HTTP_USER_AGENT')
+            
+            AuditService.record_event(
+                usuario=request.user,
+                emp_id=int(emp_id),
+                modulo=AuditoriaModulo.M05,
+                accion=getattr(AuditoriaAccion, 'EDICION_ELIMINADA', 'EDICION_ACTUALIZADA'),
+                entidad="Edicion",
+                entidad_id=str(edition.id),
+                valores_anteriores={"eliminado": False},
+                valores_nuevos={"eliminado": True},
+                resultado=AuditoriaResultado.EXITOSO,
+                ip_address=ip_addr,
+                user_agent=user_agent
+            )
+            
+        return Response({"detail": "Edición eliminada con éxito."}, status=status.HTTP_200_OK)
+
 
 class CompanyEditionScheduleView(generics.GenericAPIView):
     """
@@ -291,3 +336,213 @@ class CompanyEditionReactivateView(generics.GenericAPIView):
             
         output_serializer = EditionDetailSerializer(edition)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+
+class CompanyEditionNextCodeView(APIView):
+    """
+    GET: Calculate the next logical code number for a given collection type.
+    """
+    permission_classes = [IsAuthenticatedAndActive, HasCompanyPermission]
+    required_permission = 'EDICION_VER'
+
+    def get(self, request, emp_id):
+        collection_type = request.query_params.get('type')
+        prefix_map = {
+            'PERIÓDICO': 'PER-',
+            'REVISTA': 'REV-',
+            'CÓMIC': 'COM-'
+        }
+        
+        def get_next_number(prefix):
+            # Get active editions for company and filter by prefix code
+            queryset = get_company_editions(emp_id).filter(codigo__startswith=prefix)
+            codes = queryset.values_list('codigo', flat=True)
+            max_num = 0
+            for code in codes:
+                try:
+                    num_part = code[len(prefix):]
+                    num = int(num_part)
+                    if num > max_num:
+                        max_num = num
+                except ValueError:
+                    pass
+            return max_num + 1
+
+        if collection_type:
+            collection_type = collection_type.upper()
+            prefix = prefix_map.get(collection_type, 'PER-')
+            next_num = get_next_number(prefix)
+            return Response({
+                'prefix': prefix,
+                'next_number': next_num,
+                'next_code': f"{prefix}{next_num}"
+            }, status=status.HTTP_200_OK)
+        else:
+            # Bulk calculate next codes for all collection types
+            res_data = {}
+            for col_type, prefix in prefix_map.items():
+                next_num = get_next_number(prefix)
+                res_data[col_type] = {
+                    'prefix': prefix,
+                    'next_number': next_num,
+                    'next_code': f"{prefix}{next_num}"
+                }
+            return Response(res_data, status=status.HTTP_200_OK)
+
+
+class CompanyEditionPageView(APIView):
+    """
+    GET /api/v1/companies/{emp_id}/editions/{edi_id}/pages/{page_number}/
+    Serves a protected page image file for any of the company's editions.
+    Used by the administrative visor/viewer.
+    """
+    permission_classes = [IsAuthenticatedAndActive]
+
+    def get(self, request, emp_id, edi_id, page_number):
+        from django.http import FileResponse
+        from apps.editions.models.edicion_pagina import EdicionPagina
+        from apps.files.services.storage_service import StorageService
+        from apps.authorization.services.permission_service import is_platform_superadmin, calculate_effective_permissions
+        from apps.authorization.selectors.auth_selector import get_user_company_relation
+        from apps.access.models.acceso_edicion import AccesoEdicion
+        from django.utils import timezone
+        from django.db import models
+
+        edition = get_company_edition_by_id(int(emp_id), int(edi_id))
+        if not edition:
+            raise Http404("La edición especificada no existe.")
+
+        # Check administrative access
+        is_admin = False
+        if is_platform_superadmin(request.user):
+            is_admin = True
+        else:
+            relation = get_user_company_relation(request.user.id, int(emp_id))
+            if relation:
+                effective_perms = calculate_effective_permissions(request.user.id, int(emp_id))
+                if 'EDICION_VER' in effective_perms:
+                    is_admin = True
+
+        if not is_admin:
+            # Check if the user has active access to the edition
+            now = timezone.now()
+            has_access = False
+            
+            # Check if edition is free
+            if edition.modalidad == 'GRATUITA':
+                has_access = True
+            else:
+                # Check active AccesoEdicion record
+                has_access = AccesoEdicion.objects.using('periodico_db').filter(
+                    usuario=request.user,
+                    edicion=edition,
+                    estado='ACTIVO',
+                    fecha_inicio__lte=now
+                ).filter(
+                    models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+                ).exists()
+                
+            if not has_access:
+                raise PermissionDenied("No tienes acceso a esta edición.")
+
+        try:
+            page = EdicionPagina.objects.using('periodico_db').select_related('archivo').get(
+                edicion=edition,
+                edp_numero_pagina=page_number,
+                edp_es_actual=True,
+                edp_estado='GENERADA'
+            )
+        except EdicionPagina.DoesNotExist:
+            return Response(
+                {"error": f"La página {page_number} no existe en esta edición o no está generada."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Serve the physical file from private storage
+        try:
+            file_path = StorageService.get_private_absolute_path(page.archivo.ruta_storage)
+            if not file_path.exists() or not file_path.is_file():
+                return Response(
+                    {"error": "El archivo físico de la página no está disponible en almacenamiento."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            return FileResponse(open(file_path, 'rb'), content_type='image/jpeg')
+        except ValueError:
+            return Response(
+                {"error": "Ruta de archivo inválida."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Error al servir la página: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+from apps.notifications.models.notificacion import Notificacion
+from apps.editions.tasks import distribute_edition_to_subscribers_task
+
+class CompanyEditionDistributionStatusView(generics.GenericAPIView):
+    """
+    GET: Retrieve delivery status details of a published edition to active subscribers.
+    """
+    permission_classes = [IsAuthenticatedAndActive, HasCompanyPermission]
+    required_permission = 'EDICION_VER'
+
+    def get(self, request, emp_id, edi_id):
+        self.check_permissions(request)
+        
+        try:
+            # Query all notifications related to this edition
+            notifs = Notificacion.objects.using('periodico_db').filter(
+                empresa_id=int(emp_id),
+                entidad='Edicion',
+                entidad_id=str(edi_id)
+            ).select_related('usuario').order_by('fecha_creacion')
+
+            data = []
+            for n in notifs:
+                data.append({
+                    'id': n.id,
+                    'estado': n.estado, # 'ENVIADA' or 'FALLIDA'
+                    'fecha_envio': n.fecha_envio or n.fecha_creacion,
+                    'mensaje_error': n.mensaje if n.estado == 'FALLIDA' else None,
+                    'usuario': {
+                        'id': n.usuario.id,
+                        'nombres': n.usuario.nombres,
+                        'apellidos': n.usuario.apellidos,
+                        'correo': n.usuario.usr_correo
+                    }
+                })
+
+            return Response(data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"detail": f"Error al obtener el estado de distribución: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class CompanyEditionRetryDistributionView(generics.GenericAPIView):
+    """
+    POST: Re-enqueue the Celery subscriber distribution task for this edition.
+    """
+    permission_classes = [IsAuthenticatedAndActive, HasCompanyPermission]
+    required_permission = 'EDICION_PUBLICAR'
+
+    def post(self, request, emp_id, edi_id):
+        self.check_permissions(request)
+        
+        try:
+            distribute_edition_to_subscribers_task.delay(int(edi_id))
+            return Response(
+                {"detail": "Reintento de distribución encolado con éxito."},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Error al encolar el reintento de distribución: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+

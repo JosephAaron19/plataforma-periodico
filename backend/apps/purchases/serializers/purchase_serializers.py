@@ -72,6 +72,7 @@ class MyPurchaseItemSerializer(serializers.ModelSerializer):
             'moneda',
             'acceso_id',
             'acceso_fecha_fin',
+            'referencia_interna',
         ]
 
     def get_acceso_id(self, obj):

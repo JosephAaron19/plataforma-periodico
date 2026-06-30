@@ -26,13 +26,14 @@ def upload_edition_pdf(
     edition_id: int,
     user: Usuario,
     uploaded_file,
+    cover_file = None,
     ip_address: str = None,
     user_agent: str = None
 ) -> Edicion:
     """
     Validates and uploads the main PDF file for an edition following a strict safety order:
     1. Validate file (magic bytes, structure, encryption, page count, dimensions).
-    2. Save physically to private storage.
+    2. Save physically to private storage and optionally the cover to public storage.
     3. Start database transaction and lock company & edition rows.
     4. Validate plan and storage limits.
     5. Register file in database, associate with edition, and create processing records.
@@ -86,8 +87,9 @@ def upload_edition_pdf(
 
     # 2. Save physically to private storage
     relative_path = None
+    relative_cover_path = None
     try:
-        # Generate sha256 checksum
+        # Generate sha256 checksum for PDF
         uploaded_file.seek(0)
         hasher = hashlib.sha256()
         for chunk in uploaded_file.chunks():
@@ -97,6 +99,16 @@ def upload_edition_pdf(
 
         # Save private file
         relative_path = StorageService.save_private_file(uploaded_file, company_id, uploaded_file.name)
+
+        # Save public cover if uploaded manually
+        if cover_file:
+            cover_file.seek(0)
+            cover_hasher = hashlib.sha256()
+            for chunk in cover_file.chunks():
+                cover_hasher.update(chunk)
+            hash_cover_sha256 = cover_hasher.hexdigest()
+            cover_file.seek(0)
+            relative_cover_path = StorageService.save_public_file(cover_file, company_id, cover_file.name)
     except Exception as io_err:
         raise ValidationError(f"Error de almacenamiento físico del archivo. Detalle: {str(io_err)}")
 
@@ -144,8 +156,9 @@ def upload_edition_pdf(
                         f"El tamaño del archivo ({file_size / (1024 * 1024):.2f} MB) excede el límite permitido por el plan ({limite_pdf_mb} MB)."
                     )
 
-            # Check total storage limit
-            storage_check = check_storage_limit(company_id, additional_bytes=file_size)
+            # Check total storage limit (including cover if present)
+            total_bytes_added = file_size + (cover_file.size if cover_file else 0)
+            storage_check = check_storage_limit(company_id, additional_bytes=total_bytes_added)
             if not storage_check["allowed"]:
                 raise ValidationError(storage_check["message"])
 
@@ -197,6 +210,38 @@ def upload_edition_pdf(
                 asignado_por=user,
                 empresa=company
             )
+
+            # 7b. If cover_file was uploaded manually, register it in DB and associate with edition
+            if cover_file:
+                cover_ext = os.path.splitext(cover_file.name)[1].lower() or '.jpg'
+                archivo_cover = Archivo.objects.using('periodico_db').create(
+                    empresa=company,
+                    creado_por=user,
+                    nombre_original=cover_file.name,
+                    nombre_interno=os.path.basename(relative_cover_path),
+                    extension=cover_ext.replace('.', ''),
+                    tipo_mime=cover_file.content_type or 'image/jpeg',
+                    tamano_bytes=cover_file.size,
+                    hash_sha256=hash_cover_sha256,
+                    ruta_storage=relative_cover_path,
+                    proveedor_storage='LOCAL',
+                    contenedor='public',
+                    es_publico=True,
+                    version=1,
+                    estado='DISPONIBLE',
+                    eliminado=False
+                )
+
+                EdicionArchivo.objects.using('periodico_db').create(
+                    edicion=edition,
+                    archivo=archivo_cover,
+                    tipo_archivo='PORTADA',
+                    version=1,
+                    es_actual=True,
+                    estado='ACTIVO',
+                    asignado_por=user,
+                    empresa=company
+                )
 
             # Deactivate previous processings
             Procesamiento.objects.using('periodico_db').filter(
@@ -276,9 +321,11 @@ def upload_edition_pdf(
             )
 
     except Exception as db_err:
-        # Delete file if database operations fail
+        # Delete files if database operations fail
         if relative_path:
             StorageService.delete_private_file(relative_path)
+        if relative_cover_path:
+            StorageService.delete_public_file(relative_cover_path)
         raise db_err
 
     return edition

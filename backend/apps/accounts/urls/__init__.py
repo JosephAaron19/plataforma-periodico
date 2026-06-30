@@ -1,7 +1,8 @@
 from django.urls import path
 from apps.accounts.views import (
     RegisterView, VerifyEmailView, ResendVerificationView,
-    LoginView, TokenRefreshView, LogoutView
+    LoginView, TokenRefreshView, LogoutView,
+    PasswordResetRequestView, PasswordResetConfirmView
 )
 from apps.authorization.views import InvitationAcceptView
 
@@ -13,6 +14,8 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('invitations/accept/', InvitationAcceptView.as_view(), name='invitation-accept'),
+    path('password-reset/request/', PasswordResetRequestView.as_view(), name='password_reset_request'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
 ]
 
 

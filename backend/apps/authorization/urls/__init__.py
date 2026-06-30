@@ -7,6 +7,7 @@ from apps.authorization.views import (
     CompanyMemberDetailView,
     CompanyMemberSuspendView,
     CompanyMemberReactivateView,
+    CompanyMemberCreateDirectView,
     CompanyRoleListView,
     CompanyPermissionListView,
     MemberRoleListAssignView,
@@ -26,6 +27,7 @@ urlpatterns = [
     
     # Members
     path('members/', CompanyMemberListView.as_view(), name='company-member-list'),
+    path('members/create-direct/', CompanyMemberCreateDirectView.as_view(), name='company-member-create-direct'),
     path('members/<int:uep_id>/', CompanyMemberDetailView.as_view(), name='company-member-detail'),
     path('members/<int:uep_id>/suspend/', CompanyMemberSuspendView.as_view(), name='company-member-suspend'),
     path('members/<int:uep_id>/reactivate/', CompanyMemberReactivateView.as_view(), name='company-member-reactivate'),

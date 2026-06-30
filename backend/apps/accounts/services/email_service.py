@@ -14,3 +14,16 @@ def send_verification_email(*, email: str, nombres: str, plain_token: str) -> No
         nombres=nombres,
         plain_token=plain_token
     )
+
+def send_password_reset_email(*, email: str, nombres: str, plain_token: str) -> None:
+    """
+    Invokes the Celery task to asynchronously send the password reset email to the user.
+    """
+    from apps.accounts.tasks.send_email import send_password_reset_email_task
+    
+    logger.info(f"Encolando envío de correo de restablecimiento para el correo {email}")
+    send_password_reset_email_task.delay(
+        email=email,
+        nombres=nombres,
+        plain_token=plain_token
+    )

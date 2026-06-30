@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = ResendVerificationSerializer(data=request.data)

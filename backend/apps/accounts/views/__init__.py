@@ -4,6 +4,8 @@ from apps.accounts.views.resend_verification import ResendVerificationView
 from apps.accounts.views.login import LoginView
 from apps.accounts.views.refresh import TokenRefreshView
 from apps.accounts.views.logout import LogoutView
+from apps.accounts.views.password_reset_request import PasswordResetRequestView
+from apps.accounts.views.password_reset_confirm import PasswordResetConfirmView
 
 __all__ = [
     'RegisterView',
@@ -12,6 +14,8 @@ __all__ = [
     'LoginView',
     'TokenRefreshView',
     'LogoutView',
+    'PasswordResetRequestView',
+    'PasswordResetConfirmView',
 ]
 
 

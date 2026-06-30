@@ -139,7 +139,7 @@ def process_webhook_event(event: NormalizedWebhookEvent, provider_code: str, req
 
             now = timezone.now()
 
-            if event.status == 'CONFIRMADO':
+            if event.status in ['CONFIRMADO', 'APROBADO']:
                 pago.estado = Pago.CONFIRMADO
                 pago.identificador_externo = event.external_reference
                 pago.fecha_confirmacion = now

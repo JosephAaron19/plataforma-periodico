@@ -103,18 +103,19 @@ class RegistrationFlowTest(SimpleTestCase):
     @patch('apps.accounts.models.usuario.Usuario.objects.using')
     def test_register_duplicate_active_user_policy(self, mock_user_using, mock_user_save, mock_verification_save, mock_send_email, mock_on_commit):
         """
-        Policy: If user is ACTIVO, register_user returns success without creating a user or enqueuing email.
+        Policy: If user is ACTIVO, register_user raises ValidationError.
         """
         mock_active_user = Usuario(usr_correo="active@example.com", estado=EstadoUsuario.ACTIVO)
         mock_user_using.return_value.filter.return_value.first.return_value = mock_active_user
         
-        user = register_user(
-            email="active@example.com",
-            password="securepassword123",
-            nombres="Jane"
-        )
+        with self.assertRaises(ValidationError) as context:
+            register_user(
+                email="active@example.com",
+                password="securepassword123",
+                nombres="Jane"
+            )
         
-        self.assertEqual(user, mock_active_user)
+        self.assertIn("email", context.exception.detail)
         # Database should not write anything and no email must be enqueued
         mock_user_save.assert_not_called()
         mock_verification_save.assert_not_called()

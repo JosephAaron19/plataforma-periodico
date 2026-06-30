@@ -43,10 +43,9 @@ def register_user(
     existing_user = Usuario.objects.using('periodico_db').filter(usr_correo=normalized_email).first()
     
     if existing_user:
-        # Policy for ACTIVO user: simulate success without sending mail or writing anything
+        # Policy for ACTIVO user: raise validation error to indicate the email is already in use
         if existing_user.estado == EstadoUsuario.ACTIVO:
-            logger.info(f"Registro solicitado para correo ACTIVO {masked}. Simulando respuesta exitosa.")
-            return existing_user
+            raise ValidationError({"email": "El correo electrónico ya se encuentra registrado"})
             
         # Policy for PENDIENTE user: invalid prior tokens, generate new token and resend email
         if existing_user.estado == EstadoUsuario.PENDIENTE:

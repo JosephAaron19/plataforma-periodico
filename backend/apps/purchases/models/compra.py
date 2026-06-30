@@ -21,15 +21,15 @@ class Compra(models.Model):
     """
     # Physical state choices — derived from schema defaults/flow (no DB CHECK observed)
     PENDIENTE = 'PENDIENTE'
-    PAGADO = 'PAGADO'
-    CANCELADO = 'CANCELADO'
-    RECHAZADO = 'RECHAZADO'
+    PAGADO = 'PAGADA'
+    CANCELADO = 'CANCELADA'
+    RECHAZADO = 'RECHAZADA'
     ERROR = 'ERROR'
     ESTADO_CHOICES = [
         (PENDIENTE, 'Pendiente'),
-        (PAGADO, 'Pagado'),
-        (CANCELADO, 'Cancelado'),
-        (RECHAZADO, 'Rechazado'),
+        (PAGADO, 'Pagada'),
+        (CANCELADO, 'Cancelada'),
+        (RECHAZADO, 'Rechazada'),
         (ERROR, 'Error'),
     ]
 

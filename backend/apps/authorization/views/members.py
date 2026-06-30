@@ -8,7 +8,7 @@ from apps.authorization.selectors.member_selectors import get_company_members_qu
 from apps.authorization.services.member_suspend_service import suspend_company_member
 from apps.authorization.services.member_reactivate_service import reactivate_company_member
 
-from apps.authorization.serializers.member import CompanyMemberSerializer, MemberSuspendSerializer
+from apps.authorization.serializers.member import CompanyMemberSerializer, MemberSuspendSerializer, CompanyMemberCreateSerializer
 from apps.authorization.models.usuario_empresa import UsuarioEmpresa
 from apps.authorization.permissions.drf_permissions import HasCompanyAccess, HasCompanyPermission
 
@@ -104,3 +104,100 @@ class CompanyMemberReactivateView(generics.GenericAPIView):
             
         response_serializer = CompanyMemberSerializer(member_relation)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class CompanyMemberCreateDirectView(generics.GenericAPIView):
+    """
+    POST: Create a user and link it directly to the company with a role (no verification email needed).
+    """
+    permission_classes = [HasCompanyPermission]
+    required_permission = 'USUARIO_GESTIONAR'
+    serializer_class = CompanyMemberCreateSerializer
+
+    def post(self, request, *args, **kwargs):
+        emp_id = self.kwargs.get('emp_id')
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
+        role_code = serializer.validated_data['role_code']
+        nombres = serializer.validated_data.get('nombres')
+        apellidos = serializer.validated_data.get('apellidos')
+        
+        email_clean = email.strip().lower()
+        
+        from django.db import transaction
+        from apps.accounts.models.usuario import Usuario
+        from apps.accounts.services.password_service import hash_password
+        from apps.accounts.models.perfil import Perfil
+        from apps.companies.models.empresa import Empresa
+        from apps.authorization.models.rol import Rol
+        from apps.authorization.models.usuario_empresa import UsuarioEmpresa
+        from apps.authorization.models.usuario_empresa_rol import UsuarioEmpresaRol
+        from apps.authorization.models.rol_historial import RolHistorial
+
+        # Check if user already exists
+        user = Usuario.objects.using('periodico_db').filter(usr_correo=email_clean, eliminado=False).first()
+        if user:
+            raise DRFValidationError({"email": ["El correo electrónico ya está registrado en el sistema."]})
+            
+        try:
+            with transaction.atomic(using='periodico_db'):
+                # 1. Create the base User
+                user = Usuario(
+                    usr_correo=email_clean,
+                    nombres=nombres or email_clean.split('@')[0].capitalize(),
+                    apellidos=apellidos,
+                    password=hash_password(password),
+                    estado='ACTIVO',
+                    correo_verificado=True
+                )
+                user.save(using='periodico_db')
+                
+                # 2. Create profile
+                perfil = Perfil(usuario=user, idioma='es')
+                perfil.save(using='periodico_db')
+                
+                # Get company and role records
+                empresa = get_object_or_404(Empresa.objects.using('periodico_db'), id=emp_id)
+                rol = get_object_or_404(Rol.objects.using('periodico_db'), codigo=role_code)
+                
+                # 3. Create company relation
+                uep = UsuarioEmpresa(
+                    usuario=user,
+                    empresa=empresa,
+                    es_principal=True,
+                    estado='ACTIVO',
+                    asignado_por=request.user,
+                    motivo='Creado directamente desde la gestión de usuarios'
+                )
+                uep.save(using='periodico_db')
+                
+                # 4. Assign role
+                uer = UsuarioEmpresaRol(
+                    usuario_empresa=uep,
+                    rol=rol,
+                    es_principal=True,
+                    asignado_por=request.user,
+                    estado='ACTIVO'
+                )
+                uer.save(using='periodico_db')
+                
+                # 5. Log role history
+                historial = RolHistorial(
+                    usuario_empresa=uep,
+                    rol=rol,
+                    tipo_evento='ASIGNACION_ROL',
+                    motivo='Asignación de rol inicial por creación directa de usuario',
+                    realizado_por=request.user,
+                    direccion_ip=request.META.get('REMOTE_ADDR')
+                )
+                historial.save(using='periodico_db')
+                
+            response_serializer = CompanyMemberSerializer(uep)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            raise DRFValidationError({"detail": f"No se pudo crear el miembro: {str(e)}"})
+

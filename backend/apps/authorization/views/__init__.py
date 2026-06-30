@@ -8,7 +8,8 @@ from apps.authorization.views.members import (
     CompanyMemberListView,
     CompanyMemberDetailView,
     CompanyMemberSuspendView,
-    CompanyMemberReactivateView
+    CompanyMemberReactivateView,
+    CompanyMemberCreateDirectView
 )
 from apps.authorization.views.roles_permissions import (
     CompanyRoleListView,
@@ -31,6 +32,7 @@ __all__ = [
     'CompanyMemberDetailView',
     'CompanyMemberSuspendView',
     'CompanyMemberReactivateView',
+    'CompanyMemberCreateDirectView',
     'CompanyRoleListView',
     'CompanyPermissionListView',
     'MemberRoleListAssignView',

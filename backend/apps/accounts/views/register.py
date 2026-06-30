@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = UserRegisterSerializer(data=request.data)
@@ -42,6 +43,8 @@ class RegisterView(APIView):
             )
             
         except Exception as e:
+            if hasattr(e, 'detail') or isinstance(e, ValueError):
+                raise e
             logger.error(f"Error inesperado durante el registro: {e}", exc_info=True)
             return Response(
                 {"error": "Ocurrió un error inesperado al registrar el usuario"},

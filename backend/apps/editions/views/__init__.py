@@ -4,11 +4,16 @@ from apps.editions.views.edition_views import (
     CompanyEditionScheduleView,
     CompanyEditionPublishView,
     CompanyEditionSuspendView,
-    CompanyEditionReactivateView
+    CompanyEditionReactivateView,
+    CompanyEditionNextCodeView,
+    CompanyEditionPageView,
+    CompanyEditionDistributionStatusView,
+    CompanyEditionRetryDistributionView
 )
 from apps.editions.views.public_views import (
     PublicEditionListView,
-    PublicEditionDetailView
+    PublicEditionDetailView,
+    ShortNewsListView
 )
 from apps.editions.views.pdf_views import (
     CompanyEditionPDFView,
@@ -24,10 +29,16 @@ __all__ = [
     'CompanyEditionPublishView',
     'CompanyEditionSuspendView',
     'CompanyEditionReactivateView',
+    'CompanyEditionNextCodeView',
+    'CompanyEditionPageView',
     'PublicEditionListView',
     'PublicEditionDetailView',
+    'ShortNewsListView',
     'CompanyEditionPDFView',
     'CompanyEditionProcessingStatusView',
     'CompanyEditionProcessingRetryView',
-    'CompanyEditionProcessingCancelView'
+    'CompanyEditionProcessingCancelView',
+    'CompanyEditionDistributionStatusView',
+    'CompanyEditionRetryDistributionView'
 ]
+

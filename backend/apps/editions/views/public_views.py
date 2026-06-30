@@ -49,3 +49,49 @@ class PublicEditionDetailView(generics.RetrieveAPIView):
         if not edition:
             raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
         return edition
+
+
+from rest_framework.views import APIView
+
+class ShortNewsListView(APIView):
+    """
+    GET: List short news for the Amazonia Diario sidebar.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        # Structured mock data matching the reference image
+        news_data = [
+            {
+                "time": "10:45 a.m.",
+                "title": "Ganó el presidente en Perú",
+                "summary": "Resultados oficiales confirman su victoria en segunda vuelta.",
+                "image_url": "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=150&auto=format&fit=crop&q=60"
+            },
+            {
+                "time": "09:30 a.m.",
+                "title": "Terremoto en Venezuela",
+                "summary": "Sismo de magnitud 6.2 sacude varias zonas del país. No se reportan víctimas.",
+                "image_url": "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=150&auto=format&fit=crop&q=60"
+            },
+            {
+                "time": "08:15 a.m.",
+                "title": "Lluvias intensas afectan el norte",
+                "summary": "Varias regiones en alerta por desbordes de ríos y huaicos.",
+                "image_url": "https://images.unsplash.com/photo-1547683905-f686c993aae5?w=150&auto=format&fit=crop&q=60"
+            },
+            {
+                "time": "07:00 a.m.",
+                "title": "Precio del dólar continúa a la baja",
+                "summary": "Moneda americana registra ligera caída en el mercado local.",
+                "image_url": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=150&auto=format&fit=crop&q=60"
+            },
+            {
+                "time": "06:30 a.m.",
+                "title": "Selección Peruana se prepara para la fecha",
+                "summary": "Entrenamientos en Lima con miras al próximo partido de eliminatorias.",
+                "image_url": "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=150&auto=format&fit=crop&q=60"
+            }
+        ]
+        return Response(news_data, status=status.HTTP_200_OK)
+

@@ -44,3 +44,38 @@ class MemberSuspendSerializer(serializers.Serializer):
         max_length=300,
         help_text="Motivo de la suspensión del miembro."
     )
+
+class CompanyMemberCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        required=True,
+        max_length=150,
+        error_messages={
+            "required": "El correo es obligatorio",
+            "invalid": "Formato de correo no válido"
+        }
+    )
+    password = serializers.CharField(
+        required=True,
+        min_length=8,
+        max_length=100,
+        error_messages={
+            "required": "La contraseña es obligatoria",
+            "min_length": "La contraseña debe tener al menos 8 caracteres"
+        }
+    )
+    role_code = serializers.CharField(
+        required=True,
+        max_length=50
+    )
+    nombres = serializers.CharField(
+        required=False,
+        max_length=100,
+        allow_blank=True,
+        allow_null=True
+    )
+    apellidos = serializers.CharField(
+        required=False,
+        max_length=100,
+        allow_blank=True,
+        allow_null=True
+    )

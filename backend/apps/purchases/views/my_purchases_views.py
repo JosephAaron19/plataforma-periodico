@@ -31,6 +31,39 @@ class MyPurchasesView(APIView):
 
     def get(self, request):
         user = request.user
+        compra_id = request.query_params.get('id')
+
+        if compra_id:
+            try:
+                compra = (
+                    Compra.objects.using('periodico_db')
+                    .select_related('edicion', 'empresa')
+                    .get(usuario_id=user.id, id=compra_id)
+                )
+                # Fetch related payment details
+                pago = compra.pagos.order_by('-numero_intento').first()
+                serializer = MyPurchaseItemSerializer(compra)
+                data = serializer.data
+                if pago:
+                    data['medio_pago'] = pago.medio_pago
+                    data['identificador_externo'] = pago.identificador_externo
+                else:
+                    data['medio_pago'] = 'YAPE'
+                    data['identificador_externo'] = compra.referencia_interna
+                
+                # Add user context securely for receipt generation
+                data['usuario'] = {
+                    'nombres': user.nombres,
+                    'apellidos': user.apellidos,
+                    'correo': user.usr_correo,
+                    'id': user.id
+                }
+                return Response(data, status=status.HTTP_200_OK)
+            except Compra.DoesNotExist:
+                return Response(
+                    {'detail': 'Compra no encontrada.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
         # Only return current user's purchases — no IDOR possible
         compras = (

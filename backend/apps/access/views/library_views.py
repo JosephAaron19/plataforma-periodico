@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 from django.utils import timezone
 from django.db import models
 from apps.editions.models.edicion import Edicion
@@ -66,3 +67,78 @@ class LibraryListView(APIView):
 
         serializer = LibraryEditionSerializer(editions, many=True)
         return Response(serializer.data)
+
+
+from rest_framework.exceptions import PermissionDenied
+
+class UserAssignedEditionsListView(APIView):
+    """
+    GET /api/v1/users/{user_id}/editions/
+    Returns all published editions assigned to the user (via active AccesoEdicion or GRATUITA modality).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        user = request.user
+        
+        # Security check: only allow requesting own editions unless it is the admin user
+        if user.id != int(user_id) and getattr(user, 'usr_correo', '') != 'admin':
+            raise PermissionDenied("No tienes permiso para consultar las ediciones de este usuario.")
+
+        now = timezone.now()
+
+        # Retrieve editions where user has active access
+        active_access_edition_ids = AccesoEdicion.objects.using('periodico_db').filter(
+            usuario_id=int(user_id),
+            estado='ACTIVO',
+            fecha_inicio__lte=now
+        ).filter(
+            models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+        ).values_list('edicion_id', flat=True)
+
+        # Base conditions: free edition or active access record
+        q_conditions = models.Q(modalidad='GRATUITA') | models.Q(id__in=active_access_edition_ids)
+
+        # Retrieve published, non-deleted editions from active, non-deleted companies
+        editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(
+            estado='PUBLICADA',
+            eliminado=False,
+            empresa__estado='ACTIVA',
+            empresa__eliminado=False
+        ).filter(q_conditions).distinct().order_by('-fecha_publicacion')
+
+        data = []
+        for ed in editions:
+            # Fetch PDF file
+            pdf_rel = ed.archivos_asociados.filter(
+                tipo_archivo='PDF_ORIGINAL',
+                es_actual=True,
+                estado='ACTIVO',
+                archivo__estado='DISPONIBLE',
+                archivo__eliminado=False
+            ).select_related('archivo').first()
+
+            pdf_url = f"/media/{pdf_rel.archivo.ruta_storage}" if pdf_rel and pdf_rel.archivo else None
+
+            # Fetch cover file
+            cover_rel = ed.archivos_asociados.filter(
+                tipo_archivo='PORTADA',
+                es_actual=True,
+                estado='ACTIVO',
+                archivo__estado='DISPONIBLE',
+                archivo__eliminado=False
+            ).select_related('archivo').first()
+
+            portada_url = f"/media/{cover_rel.archivo.ruta_storage}" if cover_rel and cover_rel.archivo else None
+
+            data.append({
+                'edition_id': ed.id,
+                'company_id': ed.empresa_id,
+                'title': ed.titulo,
+                'publication_date': ed.fecha_publicacion,
+                'pdf_url': pdf_url,
+                'portada_url': portada_url,
+                'status': ed.estado
+            })
+
+        return Response(data, status=status.HTTP_200_OK)

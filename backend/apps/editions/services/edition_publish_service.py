@@ -155,4 +155,13 @@ def publish_edition(*, company_id: int, edition_id: int, user: Usuario = None, p
             proceso_origen=proceso_origen
         )
 
+        # 8. Trigger subscriber distribution Celery task
+        try:
+            from apps.editions.tasks import distribute_edition_to_subscribers_task
+            transaction.on_commit(lambda: distribute_edition_to_subscribers_task.delay(edition.id), using='periodico_db')
+        except Exception as celery_err:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"No se pudo encolar distribute_edition_to_subscribers_task para edicion={edition.id}: {celery_err}")
+
         return edition

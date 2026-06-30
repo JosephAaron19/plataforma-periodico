@@ -19,7 +19,7 @@ class Pago(models.Model):
       - pag_identificador_externo    — external idempotency (real gateway)
     """
     CREADO = 'CREADO'
-    CONFIRMADO = 'CONFIRMADO'
+    CONFIRMADO = 'APROBADO'
     RECHAZADO = 'RECHAZADO'
     ERROR = 'ERROR'
     ESTADO_CHOICES = [

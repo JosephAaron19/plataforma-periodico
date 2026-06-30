@@ -71,7 +71,8 @@ class EditionListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'codigo', 'titulo', 'slug', 'estado', 'fecha_edicion', 
             'fecha_publicacion', 'precio', 'moneda', 'es_destacada', 
-            'creador', 'fecha_creacion', 'fecha_actualizacion', 'portada_url'
+            'creador', 'fecha_creacion', 'fecha_actualizacion', 'portada_url',
+            'numero_paginas'
         ]
         read_only_fields = fields
 
@@ -132,13 +133,14 @@ class EditionScheduleSerializer(serializers.Serializer):
 class EditionPublicSerializer(serializers.ModelSerializer):
     empresa = EmpresaResumidoSerializer(read_only=True)
     portada_url = serializers.SerializerMethodField()
+    tamano_bytes = serializers.SerializerMethodField()
 
     class Meta:
         model = Edicion
         fields = [
             'id', 'empresa', 'titulo', 'slug', 'descripcion_corta', 'descripcion_larga',
             'fecha_edicion', 'fecha_publicacion', 'modalidad', 'precio', 'moneda',
-            'numero_paginas', 'es_destacada', 'portada_url'
+            'numero_paginas', 'es_destacada', 'portada_url', 'tamano_bytes'
         ]
         read_only_fields = fields
 
@@ -156,3 +158,18 @@ class EditionPublicSerializer(serializers.ModelSerializer):
         if portada_rel and portada_rel.archivo and portada_rel.archivo.empresa_id == obj.empresa_id:
             return f"/media/{portada_rel.archivo.ruta_storage}"
         return None
+
+    def get_tamano_bytes(self, obj) -> int:
+        pdf_rel = obj.archivos_asociados.filter(
+            tipo_archivo='PDF_ORIGINAL',
+            es_actual=True,
+            estado='ACTIVO',
+            archivo__estado='DISPONIBLE',
+            archivo__eliminado=False
+        ).select_related('archivo').first()
+        
+        if pdf_rel and pdf_rel.archivo:
+            return pdf_rel.archivo.tamano_bytes
+        return None
+
+
