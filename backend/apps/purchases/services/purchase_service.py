@@ -362,6 +362,15 @@ def confirm_purchase_mock(
     try:
         with transaction.atomic(using=using):
             if result.success:
+                # Check if it is a plan purchase
+                ref_upper = (compra.referencia_interna or '').upper()
+                is_plan = any(kw in ref_upper for kw in ['DIARIO', 'MENSUAL', 'ANUAL'])
+                
+                has_active_plan = False
+                if is_plan:
+                    from apps.plans.services.user_plan_service import check_user_has_active_plan
+                    has_active_plan = check_user_has_active_plan(usuario.id, using=using) is not None
+
                 # Confirm payment
                 pago.estado = Pago.CONFIRMADO
                 pago.identificador_externo = result.external_id
@@ -374,69 +383,123 @@ def confirm_purchase_mock(
                 # Confirm purchase
                 compra.estado = Compra.PAGADO
                 compra.fecha_confirmacion = now
-                compra.acceso_habilitado = True
-                compra.save(using=using)
-
-                # Grant access
-                acceso = grant_purchase_access(
-                    usuario=usuario, edicion=edicion, compra=compra, using=using
-                )
-
-                AuditService.record_event(
-                    usuario=usuario,
-                    emp_id=edicion.empresa_id,
-                    modulo=AUDIT_MODULE,
-                    accion='PAGO_CONFIRMADO',
-                    entidad='pag_pago',
-                    entidad_id=str(pago.id),
-                    valores_nuevos={
-                        'com_id': compra.id,
-                        'pag_id': pago.id,
-                        'estado': compra.estado,
-                    },
-                    resultado='EXITOSO',
-                    motivo='Pago confirmado por proveedor mock.',
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                )
-                AuditService.record_event(
-                    usuario=usuario,
-                    emp_id=edicion.empresa_id,
-                    modulo=AUDIT_MODULE,
-                    accion='ACCESO_COMPRA_CONCEDIDO',
-                    entidad='acc_acceso_contenido',
-                    entidad_id=str(acceso.id),
-                    valores_nuevos={
-                        'acc_id': acceso.id,
-                        'com_id': compra.id,
-                        'edi_id': edicion.id,
-                    },
-                    resultado='EXITOSO',
-                    motivo='Acceso de lectura concedido tras pago confirmado.',
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                )
-
-                logger.info(
-                    f"confirm_purchase_mock: com={compra.id} pag={pago.id} acc={acceso.id} CONFIRMADO."
-                )
-
-                # Trigger receipt email sending task asynchronously
-                try:
-                    from apps.purchases.tasks.receipt_email_tasks import send_receipt_email_task
-                    send_receipt_email_task.delay(compra.id)
-                except Exception as email_err:
-                    logger.error(
-                        f"confirm_purchase_mock: Fallo al encolar send_receipt_email_task para compra={compra.id}: {email_err}"
+                
+                acceso = None
+                if is_plan and has_active_plan:
+                    # Enqueue: mark as paid but access not enabled yet
+                    compra.acceso_habilitado = False
+                    compra.save(using=using)
+                    
+                    AuditService.record_event(
+                        usuario=usuario,
+                        emp_id=edicion.empresa_id,
+                        modulo=AUDIT_MODULE,
+                        accion='PAGO_CONFIRMADO',
+                        entidad='pag_pago',
+                        entidad_id=str(pago.id),
+                        valores_nuevos={
+                            'com_id': compra.id,
+                            'pag_id': pago.id,
+                            'estado': compra.estado,
+                        },
+                        resultado='EXITOSO',
+                        motivo='Pago confirmado por proveedor mock.',
+                        ip_address=ip_address,
+                        user_agent=user_agent,
                     )
+                    
+                    AuditService.record_event(
+                        usuario=usuario,
+                        emp_id=edicion.empresa_id,
+                        modulo=AUDIT_MODULE,
+                        accion='COMPRA_PENDIENTE',
+                        entidad='com_compra',
+                        entidad_id=str(compra.id),
+                        valores_nuevos={'com_id': compra.id},
+                        resultado='EXITOSO',
+                        motivo='Compra anticipada encolada porque ya existe un plan activo.',
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+                    
+                    logger.info(
+                        f"confirm_purchase_mock: com={compra.id} pag={pago.id} ENCOLADA por plan activo."
+                    )
+                    
+                    # Trigger early purchase email sending task asynchronously
+                    try:
+                        from apps.purchases.tasks.receipt_email_tasks import send_subscription_email_task
+                        send_subscription_email_task.delay(compra.id, 'EARLY_PURCHASE')
+                    except Exception as email_err:
+                        logger.error(
+                            f"confirm_purchase_mock: Fallo al encolar send_subscription_email_task para compra={compra.id}: {email_err}"
+                        )
+                else:
+                    # Normal flow: grant access immediately
+                    compra.acceso_habilitado = True
+                    compra.save(using=using)
+
+                    acceso = grant_purchase_access(
+                        usuario=usuario, edicion=edicion, compra=compra, using=using
+                    )
+
+                    AuditService.record_event(
+                        usuario=usuario,
+                        emp_id=edicion.empresa_id,
+                        modulo=AUDIT_MODULE,
+                        accion='PAGO_CONFIRMADO',
+                        entidad='pag_pago',
+                        entidad_id=str(pago.id),
+                        valores_nuevos={
+                            'com_id': compra.id,
+                            'pag_id': pago.id,
+                            'estado': compra.estado,
+                        },
+                        resultado='EXITOSO',
+                        motivo='Pago confirmado por proveedor mock.',
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+                    
+                    AuditService.record_event(
+                        usuario=usuario,
+                        emp_id=edicion.empresa_id,
+                        modulo=AUDIT_MODULE,
+                        accion='ACCESO_COMPRA_CONCEDIDO',
+                        entidad='acc_acceso_contenido',
+                        entidad_id=str(acceso.id),
+                        valores_nuevos={
+                            'acc_id': acceso.id,
+                            'com_id': compra.id,
+                            'edi_id': edicion.id,
+                        },
+                        resultado='EXITOSO',
+                        motivo='Acceso de lectura concedido tras pago confirmado.',
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+
+                    logger.info(
+                        f"confirm_purchase_mock: com={compra.id} pag={pago.id} acc={acceso.id} CONFIRMADO."
+                    )
+
+                    # Trigger receipt email sending task asynchronously
+                    try:
+                        from apps.purchases.tasks.receipt_email_tasks import send_receipt_email_task
+                        send_receipt_email_task.delay(compra.id)
+                    except Exception as email_err:
+                        logger.error(
+                            f"confirm_purchase_mock: Fallo al encolar send_receipt_email_task para compra={compra.id}: {email_err}"
+                        )
 
                 return {
                     'com_id': compra.id,
                     'pag_id': pago.id,
                     'estado': compra.estado,
-                    'acceso_id': acceso.id,
+                    'acceso_id': acceso.id if acceso else None,
                     'idempotente': False,
                 }
+
             else:
                 # Payment rejected
                 pago.estado = Pago.RECHAZADO

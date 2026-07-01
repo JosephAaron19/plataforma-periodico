@@ -1,7 +1,9 @@
 import sys
+import logging
 from rest_framework import generics, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from apps.authorization.permissions.drf_permissions import HasCompanyAccess, HasCompanyPermission, IsPlatformSuperadmin
 from apps.plans.selectors.plan_selectors import get_active_plans, get_plan_by_code, get_company_active_plan
 from apps.plans.services.plan_limit_service import get_company_usage, get_company_plan_limits
@@ -13,6 +15,10 @@ from apps.plans.services.plan_change_service import change_company_plan
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from apps.plans.models.plan import Plan
+from apps.accounts.models.usuario import Usuario
+
+logger = logging.getLogger(__name__)
+
 
 class PlanListView(generics.ListAPIView):
     """
@@ -239,3 +245,102 @@ class PlanAdminDetailUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         else:
             # Physical delete
             instance.delete(using='periodico_db')
+
+
+class PlanPurchaseView(APIView):
+    """
+    POST /api/v1/plans/purchase/
+    
+    Creates and confirms a plan purchase. If the user already has an active
+    plan subscription, the purchase is confirmed but queued.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        plan_id = request.data.get('plan_id')
+        usuario_id = request.data.get('usuario_id', request.user.id)
+
+        if not plan_id:
+            return Response({'detail': 'plan_id es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            plan = Plan.objects.using('periodico_db').get(id=plan_id)
+        except Plan.DoesNotExist:
+            return Response({'detail': 'Plan no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            usuario = Usuario.objects.using('periodico_db').get(id=usuario_id)
+        except Usuario.DoesNotExist:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        import uuid
+        from apps.plans.services.user_plan_service import create_user_plan_purchase
+        from apps.purchases.services.purchase_service import confirm_purchase_mock
+
+        # Use a mock reference that matches our plans pattern
+        ref_num = f"MOCK-SUB-{plan.codigo.upper()}-{uuid.uuid4().hex[:6].upper()}"
+
+        try:
+            # Create the pending purchase
+            compra = create_user_plan_purchase(
+                usuario=usuario,
+                plan=plan,
+                payment_method='MOCK_CARD',
+                reference_number=ref_num,
+                using='periodico_db'
+            )
+
+            # Simulate instant payment approval/convalidation
+            result = confirm_purchase_mock(
+                com_id=compra.id,
+                request=request,
+                using='periodico_db'
+            )
+
+            return Response({
+                'detail': 'Compra de plan procesada exitosamente.',
+                'compra_id': compra.id,
+                'estado': result['estado'],
+                'acceso_id': result['acceso_id'],
+                'queued': result['acceso_id'] is None
+            }, status=status.HTTP_200_OK)
+
+        except DjangoValidationError as ve:
+            return Response({'detail': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"PlanPurchaseView: Error al comprar plan: {e}", exc_info=True)
+            return Response({'detail': 'Error interno al procesar la compra.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ActivatePendingView(APIView):
+    """
+    POST /api/v1/plans/activate_pending/
+    
+    Checks for expired plans and activates the user's oldest queued purchase.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        usuario_id = request.data.get('usuario_id', request.user.id)
+
+        if not usuario_id:
+            return Response({'detail': 'usuario_id es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.plans.services.user_plan_service import activate_user_pending_subscriptions
+            activated = activate_user_pending_subscriptions(usuario_id=usuario_id, using='periodico_db')
+
+            if activated > 0:
+                return Response({
+                    'detail': 'Suscripción pendiente activada exitosamente.',
+                    'activated': True
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'detail': 'No se encontraron suscripciones pendientes por activar o el plan actual sigue activo.',
+                    'activated': False
+                }, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"ActivatePendingView: Error al activar suscripciones pendientes: {e}", exc_info=True)
+            return Response({'detail': 'Error interno al activar la suscripción.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

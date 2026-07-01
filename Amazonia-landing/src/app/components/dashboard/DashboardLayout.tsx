@@ -59,6 +59,8 @@ const DashboardLayout: React.FC = () => {
   // Track unique read editions count dynamically
   const [readEditionsCount, setReadEditionsCount] = useState(0);
   const [activeSubscription, setActiveSubscription] = useState<any>(null);
+  const [pendingSubscriptions, setPendingSubscriptions] = useState<any[]>([]);
+  const [historySubscriptions, setHistorySubscriptions] = useState<any[]>([]);
   const [isLoadingSub, setIsLoadingSub] = useState(true);
   
   // Real assigned editions state
@@ -81,43 +83,32 @@ const DashboardLayout: React.FC = () => {
   const fetchActiveSubscription = async () => {
     setIsLoadingSub(true);
     try {
-      const res = await api.get('my-purchases/');
-      const purchases = res.data;
-      // Find the most recent active PAGADA purchase that represents a plan
-      const active = purchases.find((p: any) => 
-        p.estado === 'PAGADA' && 
-        p.acceso_id && 
-        (p.referencia_interna.includes('MENSUAL') || p.referencia_interna.includes('ANUAL') || p.referencia_interna.includes('DIARIO'))
-      );
-      if (active) {
-        let planName = 'Plan Mensual Premium';
+      const res = await api.get('user/subscriptions/');
+      const data = res.data;
+      
+      if (data.active_subscription) {
+        const active = data.active_subscription;
+        
         let planDesc = 'Acceso ilimitado a todas las ediciones regionales e históricas.';
-        let planPrice = 'S/ 14.50';
         let planCode = 'mensual';
-
-        const ref = active.referencia_interna.toUpperCase();
-        if (ref.includes('DIARIO')) {
-          planName = 'Plan Diario';
+        if (active.plan_codigo === 'PLAN_DIARIO') {
           planDesc = 'Ideal para informarte cada día.';
-          planPrice = 'S/ 0.50';
           planCode = 'diario';
-        } else if (ref.includes('ANUAL')) {
-          planName = 'Plan Anual';
+        } else if (active.plan_codigo === 'PLAN_ANUAL') {
           planDesc = 'La mejor opción para ti, con ahorro permanente.';
-          planPrice = 'S/ 129.00';
           planCode = 'anual';
         }
 
-        const dateObj = new Date(active.acceso_fecha_fin);
-        const formattedBilling = active.acceso_fecha_fin 
+        const dateObj = new Date(active.fecha_fin);
+        const formattedBilling = active.fecha_fin 
           ? dateObj.toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })
           : 'Acceso Permanente';
 
         setActiveSubscription({
-          id: `#SUB-${String(active.acceso_id).padStart(5, '0')}`,
-          name: planName,
+          id: `#SUB-${String(active.id).padStart(5, '0')}`,
+          name: active.nombre,
           desc: planDesc,
-          price: planPrice,
+          price: `S/ ${active.precio}`,
           planCode: planCode,
           nextBilling: formattedBilling,
           paymentMethod: active.medio_pago || 'YAPE/PLIN'
@@ -125,6 +116,9 @@ const DashboardLayout: React.FC = () => {
       } else {
         setActiveSubscription(null);
       }
+      
+      setPendingSubscriptions(data.pending_subscriptions || []);
+      setHistorySubscriptions(data.history || []);
     } catch (err) {
       console.error('Error fetching reader subscription details:', err);
     } finally {
@@ -516,7 +510,13 @@ const DashboardLayout: React.FC = () => {
                         assignedEditions.map((ed, i) => {
                           const initials = ed.title.substring(0, 2).toUpperCase();
                           const formattedDate = ed.publication_date 
-                            ? new Date(ed.publication_date).toLocaleDateString('es-PE') 
+                            ? (() => {
+                                const parts = String(ed.publication_date).split('-');
+                                if (parts.length === 3) {
+                                  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).toLocaleDateString('es-PE');
+                                }
+                                return new Date(ed.publication_date).toLocaleDateString('es-PE');
+                              })()
                             : 'N/A';
                           return (
                             <div key={i} className="group flex flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition-all duration-300">
@@ -681,7 +681,13 @@ const DashboardLayout: React.FC = () => {
                       {assignedEditions.map((ed, i) => {
                         const initials = ed.title.substring(0, 2).toUpperCase();
                         const formattedDate = ed.publication_date 
-                          ? new Date(ed.publication_date).toLocaleDateString('es-PE') 
+                          ? (() => {
+                              const parts = String(ed.publication_date).split('-');
+                              if (parts.length === 3) {
+                                return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).toLocaleDateString('es-PE');
+                              }
+                              return new Date(ed.publication_date).toLocaleDateString('es-PE');
+                            })()
                           : 'N/A';
                         return (
                           <div key={i} className="group flex flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition-all duration-300">
@@ -903,6 +909,72 @@ const DashboardLayout: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Pending/Queued Subscriptions */}
+                  {!isLoadingSub && pendingSubscriptions && pendingSubscriptions.length > 0 && (
+                    <div className="space-y-4 text-left">
+                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Suscripciones Futuras</h3>
+                      <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Planes comprados anticipadamente que se activarán automáticamente al vencer tu suscripción activa.</p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {pendingSubscriptions.map((pending: any) => (
+                          <div key={pending.compra_id} className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col justify-between hover:shadow-sm transition-shadow">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                  pending.estado === 'PENDIENTE_PAGO' ? 'bg-amber-100 text-amber-850 border border-amber-200' : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                }`}>
+                                  {pending.estado === 'PENDIENTE_PAGO' ? 'Esperando Aprobación' : 'Listo en Cola (Anticipada)'}
+                                </span>
+                                <h4 className="text-sm font-bold text-slate-900 mt-2">{pending.nombre}</h4>
+                                <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                  Registrado el: {new Date(pending.fecha_creacion).toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                </p>
+                              </div>
+                              <div className="text-right flex flex-col items-end">
+                                <span className="text-xs font-black text-slate-900">S/ {pending.precio}</span>
+                                <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{pending.medio_pago}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* History of Subscriptions */}
+                  {!isLoadingSub && historySubscriptions && historySubscriptions.length > 0 && (
+                    <div className="space-y-4 text-left">
+                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Historial de Suscripciones</h3>
+                      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-left text-xs font-semibold text-slate-700">
+                            <thead>
+                              <tr className="border-b border-slate-100 bg-slate-50/50 uppercase text-[9px] font-black tracking-wider text-slate-400">
+                                <th className="py-3 px-6">Plan</th>
+                                <th className="py-3 px-4">Fecha Inicio</th>
+                                <th className="py-3 px-4">Fecha Fin</th>
+                                <th className="py-3 px-6">Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {historySubscriptions.map((hist: any) => (
+                                <tr key={hist.id} className="hover:bg-slate-50/30 transition-colors">
+                                  <td className="py-3.5 px-6 font-bold text-slate-900">{hist.nombre}</td>
+                                  <td className="py-3.5 px-4 text-slate-500 font-mono">{new Date(hist.fecha_inicio).toLocaleDateString('es-PE')}</td>
+                                  <td className="py-3.5 px-4 text-slate-500 font-mono">{hist.fecha_fin ? new Date(hist.fecha_fin).toLocaleDateString('es-PE') : 'Ilimitado'}</td>
+                                  <td className="py-3.5 px-6">
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-650 border border-slate-200">
+                                      {hist.estado}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+
                   {/* Available Plans Grid */}
                   <div className="space-y-6">
                     <div>
@@ -941,9 +1013,9 @@ const DashboardLayout: React.FC = () => {
                           </ul>
                         </div>
                         {activeSubscription?.planCode === 'diario' ? (
-                          <button disabled className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-slate-100 text-slate-400 cursor-not-allowed">
-                            Plan Activo
-                          </button>
+                          <Link to="/payment?plan=diario" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#ea580c] text-white hover:bg-[#d44f0a] transition-all block">
+                            Compra Anticipada
+                          </Link>
                         ) : (
                           <Link to="/payment?plan=diario" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#1a4d2e] text-white hover:bg-[#153e25] transition-all block">
                             Comprar edición
@@ -981,9 +1053,9 @@ const DashboardLayout: React.FC = () => {
                           </ul>
                         </div>
                         {activeSubscription?.planCode === 'mensual' ? (
-                          <button disabled className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-slate-100 text-slate-400 cursor-not-allowed">
-                            Plan Activo
-                          </button>
+                          <Link to="/payment?plan=mensual" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#ea580c] text-white hover:bg-[#d44f0a] transition-all block">
+                            Compra Anticipada
+                          </Link>
                         ) : (
                           <Link to="/payment?plan=mensual" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#1a4d2e] text-white hover:bg-[#153e25] transition-all block">
                             Suscribirme ahora
@@ -1025,9 +1097,9 @@ const DashboardLayout: React.FC = () => {
                           </ul>
                         </div>
                         {activeSubscription?.planCode === 'anual' ? (
-                          <button disabled className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-slate-100 text-slate-400 cursor-not-allowed">
-                            Plan Activo
-                          </button>
+                          <Link to="/payment?plan=anual" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#ea580c] text-white hover:bg-[#d44f0a] transition-all block shadow-sm">
+                            Compra Anticipada
+                          </Link>
                         ) : (
                           <Link to="/payment?plan=anual" className="w-full py-2.5 rounded-xl text-center text-xs font-bold bg-[#ea580c] text-white hover:bg-[#d44f0a] transition-all block shadow-sm">
                             Suscribirme ahora

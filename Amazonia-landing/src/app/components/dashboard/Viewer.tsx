@@ -929,7 +929,14 @@ export const Viewer: React.FC = () => {
                   <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[10px] text-slate-400 font-bold">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-slate-500" />
-                      {new Date(ed.fecha_edicion).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                      {(() => {
+                        const parts = (ed.fecha_edicion || '').split('-');
+                        if (parts.length === 3) {
+                          const dateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                          return dateObj.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+                        }
+                        return new Date(ed.fecha_edicion).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+                      })()}
                     </span>
                     {getStatusBadge(ed.estado)}
                   </div>

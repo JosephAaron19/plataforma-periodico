@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2, X, Eye } from 'lucide-react';
 import api from '../services/api';
 
 const getFullImageUrl = (path: string | null) => {
@@ -159,7 +159,7 @@ export function HeroSection() {
         ) : latestEdition && latestEdition.portada_url ? (
           <div 
             onClick={() => setSelectedImage(getFullImageUrl(latestEdition.portada_url))}
-            className="bg-white rounded-2xl shadow-2xl p-4 max-w-sm mx-auto md:ml-auto w-full z-10 flex flex-col group transition-all duration-300 hover:shadow-orange-500/10 border border-slate-100 cursor-pointer active:scale-[0.99]"
+            className="bg-white rounded-2xl shadow-2xl p-4 max-w-sm mx-auto md:ml-auto w-full z-10 flex flex-col group transition-all duration-300 hover:-translate-y-1 hover:shadow-orange-500/10 border border-slate-100 cursor-pointer active:scale-[0.99]"
           >
             <div className="flex items-center justify-between mb-3 px-1 select-none">
               <div className="flex items-center gap-1.5">
@@ -180,18 +180,36 @@ export function HeroSection() {
               <img 
                 src={getFullImageUrl(latestEdition.portada_url)}
                 alt={latestEdition.titulo || "Última edición"}
-                className="w-full h-full object-fill select-none pointer-events-none group-hover:scale-[1.02] transition-transform duration-500"
+                className="w-full h-full object-fill select-none pointer-events-none group-hover:scale-[1.03] transition-transform duration-500"
               />
+              <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                <div className="bg-white/90 backdrop-blur-sm text-slate-800 rounded-full px-4 py-2 text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                  <Eye className="w-3.5 h-3.5 text-[#ff6600]" />
+                  <span>Ver Portada</span>
+                </div>
+              </div>
             </div>
             
             <div className="mt-3 px-1 text-left select-none">
               <p className="text-[10px] text-gray-400 font-bold mb-0.5">
-                {new Date(latestEdition.fecha_edicion).toLocaleDateString('es-ES', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                }).toUpperCase()}
+                {(() => {
+                  const parts = (latestEdition.fecha_edicion || '').split('-');
+                  if (parts.length === 3) {
+                    const dateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                    return dateObj.toLocaleDateString('es-PE', { 
+                      weekday: 'long', 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    }).toUpperCase();
+                  }
+                  return new Date(latestEdition.fecha_edicion).toLocaleDateString('es-PE', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  }).toUpperCase();
+                })()}
               </p>
               <h3 className="text-sm font-extrabold text-slate-800 line-clamp-1 group-hover:text-[#ff6600] transition-colors leading-tight">
                 {latestEdition.titulo}

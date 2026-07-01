@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Suscripción Activada - Amazonia Diario</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #334155;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #f8fafc;
+      padding: 24px 0;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .header {
+      padding: 24px;
+      border-bottom: 1px solid #f1f5f9;
+      background-color: #ffffff;
+    }
+    .logo-section {
+      float: left;
+    }
+    .logo-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: #1a4d2e;
+      margin: 0;
+      line-height: 1.1;
+    }
+    .logo-subtitle {
+      font-size: 9px;
+      font-weight: 700;
+      color: #ea580c;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-top: 2px;
+    }
+    .badge-section {
+      float: right;
+      text-align: right;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      background-color: #10b981;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-radius: 9999px;
+    }
+    .cmp-number {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 8px;
+    }
+    .clear {
+      clear: both;
+    }
+    .hero-banner {
+      background-color: #f0fdf4;
+      border: 1px solid #dcfce7;
+      margin: 24px;
+      padding: 20px;
+      border-radius: 12px;
+      text-align: center;
+    }
+    .hero-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #166534;
+      margin: 0 0 8px 0;
+    }
+    .hero-text {
+      font-size: 12px;
+      color: #15803d;
+      margin: 0;
+      font-weight: 600;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #64748b;
+      margin: 24px 24px 12px 24px;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 6px;
+    }
+    .info-grid {
+      padding: 0 24px;
+      margin-bottom: 24px;
+    }
+    .info-row {
+      margin-bottom: 12px;
+    }
+    .info-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      width: 140px;
+      display: inline-block;
+    }
+    .info-value {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .footer {
+      background-color: #1a4d2e;
+      color: #ffffff;
+      text-align: center;
+      padding: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .footer-links {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #a7f3d0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      
+      <!-- Header -->
+      <div class="header">
+        <div class="logo-section">
+          <h1 class="logo-title">Amazonia Diario</h1>
+          <div class="logo-subtitle">Información que conecta nuestra región</div>
+        </div>
+        <div class="badge-section">
+          <span class="badge">Activa</span>
+          <div class="cmp-number">CMP-{{ compra_id|stringformat:"06d" }}</div>
+        </div>
+        <div class="clear"></div>
+      </div>
+
+      <!-- Hero Banner -->
+      <div class="hero-banner">
+        <h2 class="hero-title">¡Tu Suscripción ha sido Activada!</h2>
+        <p class="hero-text">Tu plan de suscripción anterior ha expirado. Por tanto, hemos activado automáticamente tu compra anticipada pendiente para garantizar que mantengas tu acceso de manera continua y sin interrupciones.</p>
+      </div>
+
+      <!-- General Info -->
+      <div class="section-title">Detalles de la Suscripción Activa</div>
+      <div class="info-grid">
+        <div class="info-row">
+          <span class="info-label">Usuario:</span>
+          <span class="info-value">{{ full_name }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Correo:</span>
+          <span class="info-value">{{ email }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Plan Activado:</span>
+          <span class="info-value">{{ plan_name }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Fecha de Inicio:</span>
+          <span class="info-value">{{ start_date }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Fecha de Vencimiento:</span>
+          <span class="info-value">{{ end_date }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Estado de Acceso:</span>
+          <span class="info-value" style="color: #10b981; font-weight: 800;">ACTIVO (Acceso Concedido)</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Monto pagado:</span>
+          <span class="info-value">S/ {{ price }}</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>© 2026 Amazonia Diario. Todos los derechos reservados.</p>
+        <p>Esta es una notificación automática del sistema.</p>
+        <div class="footer-links">
+          Soporte: soporte@amazoniadiario.com
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

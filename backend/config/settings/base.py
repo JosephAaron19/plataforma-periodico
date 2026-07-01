@@ -189,6 +189,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.editions.tasks.publish_scheduled_editions_task',
         'schedule': 300.0,
     },
+    'activate-expired-subscriptions-every-5-minutes': {
+        'task': 'apps.plans.tasks.activate_expired_subscriptions_task',
+        'schedule': 300.0,
+    },
 }
 
 # Database Config
