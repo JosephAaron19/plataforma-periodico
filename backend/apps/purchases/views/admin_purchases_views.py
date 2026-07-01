@@ -61,7 +61,10 @@ class AdminPendingPurchasesView(APIView):
                 comprobante_url = None
                 if pago and pago.mensaje_respuesta and "Screenshot comprobante guardado en: " in pago.mensaje_respuesta:
                     path = pago.mensaje_respuesta.split("Screenshot comprobante guardado en: ")[1]
-                    comprobante_url = request.build_absolute_uri(settings.MEDIA_URL + path)
+                    from django.core.signing import TimestampSigner
+                    signer = TimestampSigner()
+                    token = signer.sign(path)
+                    comprobante_url = request.build_absolute_uri(settings.MEDIA_URL + path + f"?token={token}")
 
                 # Parse plan code
                 plan_code = 'mensual'

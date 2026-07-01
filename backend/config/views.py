@@ -85,3 +85,55 @@ class RedisHealthCheckView(APIView):
                 "status": "error",
                 "redis": "disconnected"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+from django.views import View
+from django.http import FileResponse, Http404, HttpResponseForbidden
+from pathlib import Path
+from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
+import mimetypes
+
+class ServeMediaView(View):
+    """
+    Serves files from MEDIA_ROOT.
+    Public files (like cover images/portadas) are served directly.
+    Private files (like payment receipts/comprobantes) require a valid, non-expired temporary signature token.
+    """
+    def get(self, request, path):
+        # 1. Clean and check physical file existence
+        file_path = Path(settings.MEDIA_ROOT) / path
+        if not file_path.exists() or not file_path.is_file():
+            raise Http404("El archivo no existe.")
+
+        # 2. Determine if the resource requires access protection (payment receipts, etc.)
+        # Receipts contain 'comprobante' or 'pago' or 'receipt'
+        path_lower = path.lower()
+        is_private = 'pago' in path_lower or 'comprobante' in path_lower or 'receipt' in path_lower
+
+        if is_private:
+            token = request.GET.get('token')
+            if not token:
+                # If no token is provided, fall back to checking if the admin user is logged in
+                if not request.user.is_authenticated:
+                    return HttpResponseForbidden("Acceso denegado: Se requiere un token temporal válido o iniciar sesión.")
+            else:
+                signer = TimestampSigner()
+                try:
+                    # Validate signature, max_age of 2 hours (7200 seconds)
+                    unsigned_path = signer.unsign(token, max_age=7200)
+                    if unsigned_path != path:
+                        return HttpResponseForbidden("Acceso denegado: El token no corresponde a este recurso.")
+                except (SignatureExpired, BadSignature):
+                    return HttpResponseForbidden("Acceso denegado: El token temporal ha expirado o es inválido.")
+
+        # 3. Serve the file with proper MIME type
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        if not content_type:
+            content_type = 'application/octet-stream'
+
+        try:
+            return FileResponse(open(file_path, 'rb'), content_type=content_type)
+        except Exception as e:
+            logger.error(f"Error serving media file {path}: {e}")
+            raise Http404("Error al acceder al archivo.")
+

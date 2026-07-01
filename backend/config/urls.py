@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import path, include
-from config.views import HealthCheckView, DatabaseHealthCheckView, RedisHealthCheckView
+from config.views import HealthCheckView, DatabaseHealthCheckView, RedisHealthCheckView, ServeMediaView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
     path('api/v1/health/database/', DatabaseHealthCheckView.as_view(), name='health_database'),
     path('api/v1/health/redis/', RedisHealthCheckView.as_view(), name='health_redis'),
+    path('media/<path:path>', ServeMediaView.as_view(), name='serve_media'),
 ]
 
 from django.conf import settings
