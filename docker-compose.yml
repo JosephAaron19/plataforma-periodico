@@ -14,7 +14,7 @@ services:
       - ./backend:/app
       - ./Amazonia-landing:/Amazonia-landing
       - django_static:/var/www/static
-      - C:\var\www\media:/var/www/media
+      - ./media:/var/www/media
     env_file:
       - .env
     command: python manage.py runserver 0.0.0.0:8000
@@ -30,7 +30,7 @@ services:
     container_name: periodico_celery_worker
     volumes:
       - ./backend:/app
-      - C:\var\www\media:/var/www/media
+      - ./media:/var/www/media
     env_file:
       - .env
     command: celery -A config worker --loglevel=info
@@ -45,7 +45,7 @@ services:
     container_name: periodico_celery_beat
     volumes:
       - ./backend:/app
-      - C:\var\www\media:/var/www/media
+      - ./media:/var/www/media
     env_file:
       - .env
     command: celery -A config beat --loglevel=info
