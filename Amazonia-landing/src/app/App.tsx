@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/auth';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
+import { AdBanner } from './components/AdBanner';
 import { LatestEditions } from './components/LatestEditions';
 import { LatestNews } from './components/LatestNews';
 import { DigitalSection } from './components/DigitalSection';
@@ -44,6 +45,10 @@ function AppContent() {
     <div className="min-h-screen bg-white">
       <Header />
       <HeroSection />
+      
+      {/* Primer Banner de Publicidad (Rotativo) */}
+      <AdBanner positionId="top-banner" initialIndex={0} />
+
       <section className="bg-gray-50 py-16 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -57,6 +62,10 @@ function AppContent() {
           </div>
         </div>
       </section>
+
+      {/* Segundo Banner de Publicidad (Patrocinado Rotativo) */}
+      <AdBanner positionId="middle-banner" initialIndex={1} />
+
       <PricingSection />
       <CTASection />
       <Footer />
