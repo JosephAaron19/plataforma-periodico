@@ -66,16 +66,32 @@ class SubmitReceiptView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
         else:
-            # Plan pricing fallbacks
-            if plan_code == 'diario':
-                price = Decimal('0.50')
-                description = "Plan Diario"
-            elif plan_code == 'anual':
-                price = Decimal('129.00')
-                description = "Plan Anual"
-            elif plan_code == 'mensual':
-                price = Decimal('14.50')
-                description = "Plan Mensual"
+            # Query the Plan model dynamically from database by code (case-insensitive)
+            from apps.plans.models.plan import Plan
+            db_plan_code = plan_code.upper()
+            if not db_plan_code.startswith('PLAN_'):
+                db_plan_code = f"PLAN_{db_plan_code}"
+
+            try:
+                plan = Plan.objects.using('periodico_db').get(codigo__iexact=db_plan_code, estado='ACTIVO')
+                price = plan.precio
+                description = f"Suscripción: {plan.nombre}"
+            except Plan.DoesNotExist:
+                try:
+                    plan = Plan.objects.using('periodico_db').get(codigo__iexact=plan_code, estado='ACTIVO')
+                    price = plan.precio
+                    description = f"Suscripción: {plan.nombre}"
+                except Plan.DoesNotExist:
+                    # Fallback default pricing
+                    if plan_code == 'diario':
+                        price = Decimal('0.50')
+                        description = "Plan Diario"
+                    elif plan_code == 'anual':
+                        price = Decimal('129.00')
+                        description = "Plan Anual"
+                    else:
+                        price = Decimal('14.50')
+                        description = "Plan Mensual"
 
             # Fetch a placeholder active edition (since edi_id cannot be null)
             edition = Edicion.objects.using('periodico_db').filter(estado='PUBLICADA').first()

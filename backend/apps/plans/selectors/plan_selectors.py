@@ -18,11 +18,11 @@ def get_active_plans():
 
 def get_plan_by_code(code: str) -> Plan:
     """
-    Returns an active plan by its unique code.
+    Returns an active plan by its unique code (case-insensitive).
     """
     try:
         return Plan.objects.using('periodico_db').get(
-            codigo=code,
+            codigo__iexact=code,
             estado='ACTIVO'
         )
     except Plan.DoesNotExist:

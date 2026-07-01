@@ -12,15 +12,16 @@ services:
     container_name: periodico_backend
     volumes:
       - ./backend:/app
+      - ./Amazonia-landing:/Amazonia-landing
       - django_static:/var/www/static
-      - django_media:/var/www/media
+      - C:\var\www\media:/var/www/media
     env_file:
       - .env
     command: python manage.py runserver 0.0.0.0:8000
     depends_on:
       - redis
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
 
   celery_worker:
     build:
@@ -29,6 +30,7 @@ services:
     container_name: periodico_celery_worker
     volumes:
       - ./backend:/app
+      - C:\var\www\media:/var/www/media
     env_file:
       - .env
     command: celery -A config worker --loglevel=info
@@ -43,6 +45,7 @@ services:
     container_name: periodico_celery_beat
     volumes:
       - ./backend:/app
+      - C:\var\www\media:/var/www/media
     env_file:
       - .env
     command: celery -A config beat --loglevel=info
@@ -50,36 +53,5 @@ services:
       - redis
       - backend
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: periodico_frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - frontend_dist:/var/www/frontend
-    env_file:
-      - .env
-    depends_on:
-      - backend
-
-  nginx:
-    build:
-      context: ./infrastructure/nginx
-      dockerfile: Dockerfile
-    container_name: periodico_nginx
-    ports:
-      - "8080:80"
-    volumes:
-      - frontend_dist:/var/www/frontend:ro
-      - django_static:/var/www/static:ro
-      - django_media:/var/www/media:ro
-    depends_on:
-      - backend
-      - frontend
-
 volumes:
   django_static:
-  django_media:
-  frontend_dist:

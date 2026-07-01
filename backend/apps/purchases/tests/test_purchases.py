@@ -816,3 +816,86 @@ class AuditSensitiveDataTest(SimpleTestCase):
         self.assertNotIn('card_number', field_names)
         # Only last 4 digits allowed
         self.assertIn('ultimos_cuatro', field_names)
+
+
+class SubscriptionCalculationsTest(SimpleTestCase):
+    """Tests for subscription duration calculations and access helper."""
+
+    @patch('apps.purchases.services.grant_access_service.AccesoEdicion')
+    @patch('apps.purchases.services.grant_access_service.get_acceso_tipo_compra')
+    def test_grant_purchase_access_daily_plan(self, mock_tipo, MockAcceso):
+        from apps.purchases.services.grant_access_service import grant_purchase_access
+        from datetime import timedelta
+        
+        usuario = _make_usuario()
+        edicion = _make_edicion()
+        compra = _make_compra()
+        compra.referencia_interna = "REF-12345-DIARIO"
+
+        mock_qs_none = MagicMock()
+        mock_qs_none.first.return_value = None
+        mock_qs_none.filter.return_value = mock_qs_none
+        MockAcceso.objects.using.return_value.filter.return_value = mock_qs_none
+        mock_tipo.return_value = MagicMock(id=3, codigo='COMPRA', estado='ACTIVO')
+
+        grant_purchase_access(usuario=usuario, edicion=edicion, compra=compra, using='periodico_db')
+        
+        # Verify the create call arguments
+        args, kwargs = MockAcceso.objects.using.return_value.create.call_args
+        self.assertEqual(kwargs['origen_referencia'], 'PLAN_DIARIO')
+        self.assertIsNotNone(kwargs['fecha_fin'])
+        # check that duration is roughly 24 hours
+        diff = kwargs['fecha_fin'] - kwargs['fecha_inicio']
+        self.assertAlmostEqual(diff.total_seconds(), timedelta(hours=24).total_seconds(), delta=5)
+
+    @patch('apps.purchases.services.grant_access_service.AccesoEdicion')
+    @patch('apps.purchases.services.grant_access_service.get_acceso_tipo_compra')
+    def test_grant_purchase_access_monthly_plan(self, mock_tipo, MockAcceso):
+        from apps.purchases.services.grant_access_service import grant_purchase_access
+        
+        usuario = _make_usuario()
+        edicion = _make_edicion()
+        compra = _make_compra()
+        compra.referencia_interna = "REF-12345-MENSUAL"
+
+        mock_qs_none = MagicMock()
+        mock_qs_none.first.return_value = None
+        mock_qs_none.filter.return_value = mock_qs_none
+        MockAcceso.objects.using.return_value.filter.return_value = mock_qs_none
+        mock_tipo.return_value = MagicMock(id=3, codigo='COMPRA', estado='ACTIVO')
+
+        grant_purchase_access(usuario=usuario, edicion=edicion, compra=compra, using='periodico_db')
+        
+        args, kwargs = MockAcceso.objects.using.return_value.create.call_args
+        self.assertEqual(kwargs['origen_referencia'], 'PLAN_MENSUAL')
+        self.assertIsNotNone(kwargs['fecha_fin'])
+        # check that it advances approximately 1 month (between 28 and 31 days)
+        diff = kwargs['fecha_fin'] - kwargs['fecha_inicio']
+        self.assertTrue(28 <= diff.days <= 31)
+
+    @patch('apps.purchases.models.compra.Compra.objects.using')
+    def test_check_user_has_active_subscription(self, mock_compra_using):
+        from apps.purchases.services.purchase_service import check_user_has_active_subscription
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        usuario = _make_usuario()
+        
+        # Test Case 1: No purchases -> False
+        mock_compra_using.return_value.filter.return_value = []
+        self.assertFalse(check_user_has_active_subscription(usuario))
+
+        # Test Case 2: Active purchase -> True
+        mock_purchase = MagicMock()
+        mock_purchase.referencia_interna = "REF-123-MENSUAL"
+        mock_purchase.fecha_confirmacion = timezone.now() - timedelta(days=10)
+        mock_compra_using.return_value.filter.return_value = [mock_purchase]
+        self.assertTrue(check_user_has_active_subscription(usuario))
+
+        # Test Case 3: Expired purchase -> False
+        mock_expired_purchase = MagicMock()
+        mock_expired_purchase.referencia_interna = "REF-123-DIARIO"
+        mock_expired_purchase.fecha_confirmacion = timezone.now() - timedelta(hours=25)
+        mock_compra_using.return_value.filter.return_value = [mock_expired_purchase]
+        self.assertFalse(check_user_has_active_subscription(usuario))
+

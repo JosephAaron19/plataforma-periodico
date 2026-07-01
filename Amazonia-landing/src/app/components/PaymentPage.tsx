@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { 
   ArrowLeft, Check, Copy, Upload, ShieldCheck, Loader2, 
@@ -123,6 +123,31 @@ const PaymentPage: React.FC = () => {
   const planParam = searchParams.get('plan') || 'mensual';
   const editionParam = searchParams.get('edition');
 
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [loadingPlan, setLoadingPlan] = useState(true);
+
+  useEffect(() => {
+    if (editionParam) {
+      setLoadingPlan(false);
+      return;
+    }
+    const fetchPlanDetails = async () => {
+      try {
+        let code = planParam.toUpperCase();
+        if (!code.startsWith('PLAN_')) {
+          code = `PLAN_${code}`;
+        }
+        const response = await api.get(`/plans/${code}/`);
+        setSelectedPlan(response.data);
+      } catch (err) {
+        console.warn("Could not fetch plan details from API, using fallbacks:", err);
+      } finally {
+        setLoadingPlan(false);
+      }
+    };
+    fetchPlanDetails();
+  }, [planParam, editionParam]);
+
   let planName = "Plan Mensual";
   let planPrice = "S/ 14.50";
   let planPeriod = "per mes";
@@ -133,8 +158,23 @@ const PaymentPage: React.FC = () => {
     "Desde cualquier dispositivo",
     "Soporte prioritario"
   ];
-  
-  if (planParam === 'diario') {
+
+  if (selectedPlan) {
+    planName = selectedPlan.nombre;
+    planPrice = `${selectedPlan.moneda === 'PEN' ? 'S/' : '$'} ${Number(selectedPlan.precio).toFixed(2)}`;
+    
+    const period = selectedPlan.periodicidad.toUpperCase();
+    if (period === 'PERSONALIZADO') planPeriod = 'por edición';
+    else if (period === 'MENSUAL') planPeriod = 'por mes';
+    else if (period === 'ANUAL') planPeriod = 'por año';
+    else if (period === 'SEMESTRAL') planPeriod = 'por semestral';
+    else if (period === 'UNICO') planPeriod = 'pago único';
+    else planPeriod = `por ${selectedPlan.periodicidad.toLowerCase()}`;
+
+    if (selectedPlan.funcionalidades && selectedPlan.funcionalidades.length > 0) {
+      benefits = selectedPlan.funcionalidades.map((f: any) => f.nombre);
+    }
+  } else if (planParam === 'diario') {
     planName = "Plan Diario";
     planPrice = "S/ 0.50";
     planPeriod = "per edición";
@@ -147,9 +187,16 @@ const PaymentPage: React.FC = () => {
     planName = "Plan Semestral";
     planPrice = "S/ 70.00";
     planPeriod = "per 6 meses";
+    benefits = [
+      "Acceso completo a todas las ediciones",
+      "Historial de ediciones",
+      "Lectura sin límites",
+      "Desde cualquier dispositivo",
+      "Soporte prioritario"
+    ];
   } else if (planParam === 'anual') {
     planName = "Plan Anual";
-    planPrice = "S/ 120.00";
+    planPrice = "S/ 129.00";
     planPeriod = "per año";
     benefits = [
       "Acceso completo a todas las ediciones",

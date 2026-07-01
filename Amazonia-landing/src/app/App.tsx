@@ -18,6 +18,10 @@ import Viewer from './components/dashboard/Viewer';
 import Users from './components/dashboard/Users';
 import Subscribers from './components/dashboard/Subscribers';
 import Purchases from './components/dashboard/Purchases';
+import Plans from './components/dashboard/Plans';
+import LandingConfig from './components/dashboard/LandingConfig';
+import LandingEditions from './components/dashboard/LandingEditions';
+import LandingNews from './components/dashboard/LandingNews';
 import PaymentPage from './components/PaymentPage';
 import { ReceiptViewPage } from './components/dashboard/ReceiptViewPage';
 import { Toaster } from 'sonner';
@@ -90,7 +94,10 @@ function AppContent() {
         <Route path="purchases" element={<Purchases />} />
         <Route path="users" element={<Users />} />
         <Route path="subscribers" element={<Subscribers />} />
-        <Route path="plans" element={<div className="p-8 bg-white border border-slate-200 rounded-3xl text-left font-extrabold text-slate-800 text-sm">Planes y Límites</div>} />
+        <Route path="plans" element={<Plans />} />
+        <Route path="landing-config" element={<LandingConfig />} />
+        <Route path="landing-editions" element={<LandingEditions />} />
+        <Route path="landing-news" element={<LandingNews />} />
         <Route path="settings" element={<div className="p-8 bg-white border border-slate-200 rounded-3xl text-left font-extrabold text-slate-800 text-sm">Configuración</div>} />
         <Route path="receipt" element={<ReceiptViewPage />} />
       </Route>

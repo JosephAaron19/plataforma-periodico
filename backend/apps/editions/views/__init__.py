@@ -21,6 +21,10 @@ from apps.editions.views.pdf_views import (
     CompanyEditionProcessingRetryView,
     CompanyEditionProcessingCancelView
 )
+from apps.editions.views.edicion_landing_views import (
+    EdicionLandingListCreateView,
+    EdicionLandingDetailView
+)
 
 __all__ = [
     'CompanyEditionListCreateView',
@@ -39,6 +43,8 @@ __all__ = [
     'CompanyEditionProcessingRetryView',
     'CompanyEditionProcessingCancelView',
     'CompanyEditionDistributionStatusView',
-    'CompanyEditionRetryDistributionView'
+    'CompanyEditionRetryDistributionView',
+    'EdicionLandingListCreateView',
+    'EdicionLandingDetailView'
 ]
 

@@ -43,3 +43,6 @@ Thumbs.db
 .project
 .pydevproject
 .settings/
+
+# Discard legacy frontend
+frontend/

@@ -16,7 +16,9 @@ from apps.editions.views import (
     CompanyEditionProcessingStatusView,
     CompanyEditionProcessingRetryView,
     CompanyEditionProcessingCancelView,
-    CompanyEditionPageView
+    CompanyEditionPageView,
+    EdicionLandingListCreateView,
+    EdicionLandingDetailView
 )
 
 urlpatterns = [
@@ -43,5 +45,9 @@ urlpatterns = [
     path('public/editions/', PublicEditionListView.as_view(), name='public-edition-list'),
     path('public/<slug:company_slug>/editions/<slug:slug>/', PublicEditionDetailView.as_view(), name='public-edition-detail'),
     path('news/short/', ShortNewsListView.as_view(), name='public-news-short'),
+
+    # Landing editions endpoints
+    path('public/editions-landing/', EdicionLandingListCreateView.as_view(), name='public-edition-landing-list-create'),
+    path('public/editions-landing/<int:pk>/', EdicionLandingDetailView.as_view(), name='public-edition-landing-detail'),
 ]
 

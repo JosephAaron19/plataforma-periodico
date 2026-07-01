@@ -95,6 +95,41 @@ def grant_purchase_access(
 
     tipo_acceso = get_acceso_tipo_compra(using=using)
 
+    # Determine expiry date (fecha_fin) for subscriptions
+    ref = (compra.referencia_interna or '').upper()
+    fecha_fin = None
+    origen_ref = 'COMPRA_INDIVIDUAL'
+    motivo_txt = f"Acceso otorgado por compra confirmada com_id={compra.id}."
+
+    import calendar
+    from datetime import timedelta
+
+    def add_months(sourcedate, months):
+        month = sourcedate.month - 1 + months
+        year = sourcedate.year + month // 12
+        month = month % 12 + 1
+        day = min(sourcedate.day, calendar.monthrange(year, month)[1])
+        return sourcedate.replace(year=year, month=month, day=day)
+
+    def add_years(sourcedate, years):
+        try:
+            return sourcedate.replace(year=sourcedate.year + years)
+        except ValueError:
+            return sourcedate.replace(year=sourcedate.year + years, day=28)
+
+    if "DIARIO" in ref:
+        fecha_fin = now + timedelta(hours=24)
+        origen_ref = 'PLAN_DIARIO'
+        motivo_txt = f"Suscripción Plan Diario activa por 24 horas. com_id={compra.id}."
+    elif "MENSUAL" in ref:
+        fecha_fin = add_months(now, 1)
+        origen_ref = 'PLAN_MENSUAL'
+        motivo_txt = f"Suscripción Plan Mensual activa por 1 mes. com_id={compra.id}."
+    elif "ANUAL" in ref:
+        fecha_fin = add_years(now, 1)
+        origen_ref = 'PLAN_ANUAL'
+        motivo_txt = f"Suscripción Plan Anual activa por 1 año. com_id={compra.id}."
+
     try:
         acceso = AccesoEdicion.objects.using(using).create(
             usuario=usuario,
@@ -102,10 +137,10 @@ def grant_purchase_access(
             compra_id=compra.id,
             tipo_acceso=tipo_acceso,
             fecha_inicio=now,
-            fecha_fin=None,  # No expiry for individual purchase — review table if physical constraint added
+            fecha_fin=fecha_fin,
             estado='ACTIVO',
-            origen_referencia='COMPRA_INDIVIDUAL',
-            motivo=f"Acceso otorgado por compra confirmada com_id={compra.id}."
+            origen_referencia=origen_ref,
+            motivo=motivo_txt
         )
         logger.info(
             f"grant_purchase_access: acceso creado acc={acceso.id} "

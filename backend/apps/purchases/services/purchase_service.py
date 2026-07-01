@@ -494,3 +494,56 @@ def confirm_purchase_mock(
             user_agent=user_agent,
         )
         raise
+
+
+def check_user_has_active_subscription(user, using='periodico_db') -> bool:
+    """
+    Checks if the user has an active subscription (DIARIO, MENSUAL, or ANUAL)
+    whose validity period (calculated from purchase confirmation time) has not expired.
+    """
+    from django.utils import timezone
+    from apps.purchases.models.compra import Compra
+    from datetime import timedelta
+    import calendar
+
+    def add_months(sourcedate, months):
+        month = sourcedate.month - 1 + months
+        year = sourcedate.year + month // 12
+        month = month % 12 + 1
+        day = min(sourcedate.day, calendar.monthrange(year, month)[1])
+        return sourcedate.replace(year=year, month=month, day=day)
+
+    def add_years(sourcedate, years):
+        try:
+            return sourcedate.replace(year=sourcedate.year + years)
+        except ValueError:
+            return sourcedate.replace(year=sourcedate.year + years, day=28)
+
+    now = timezone.now()
+    
+    # Query confirmed purchases that represent a plan
+    purchases = Compra.objects.using(using).filter(
+        usuario=user,
+        estado=Compra.PAGADO,
+        fecha_confirmacion__isnull=False
+    )
+    
+    for purchase in purchases:
+        ref = purchase.referencia_interna.upper()
+        start = purchase.fecha_confirmacion
+        
+        # Calculate expiry based on plan type
+        if "DIARIO" in ref:
+            expiry = start + timedelta(hours=24)
+        elif "MENSUAL" in ref:
+            expiry = add_months(start, 1)
+        elif "ANUAL" in ref:
+            expiry = add_years(start, 1)
+        else:
+            continue
+            
+        if start <= now < expiry:
+            return True
+            
+    return False
+

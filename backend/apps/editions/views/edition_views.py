@@ -129,7 +129,7 @@ class CompanyEditionDetailUpdateView(generics.GenericAPIView):
     GET: Retrieve details of an active edition of a company.
     PATCH: Update allowed fields of the edition.
     """
-    permission_classes = [IsAuthenticatedAndActive, HasCompanyPermission]
+    permission_classes = [IsAuthenticatedAndActive]
     required_permission = 'EDICION_VER'
 
     def get_serializer_class(self):
@@ -145,9 +145,67 @@ class CompanyEditionDetailUpdateView(generics.GenericAPIView):
             raise Http404("La edición no existe.")
         return edition
 
+    def check_permissions(self, request):
+        """
+        Custom permissions check:
+        For GET: Allow access if the user has administrative company permission OR customer access.
+        For PATCH/DELETE: Require HasCompanyPermission.
+        """
+        from apps.authorization.permissions.drf_permissions import IsAuthenticatedAndActive, HasCompanyPermission
+        if not IsAuthenticatedAndActive().has_permission(request, self):
+            self.permission_denied(
+                request,
+                message="Tu cuenta no está activa o verificada."
+            )
+
+        if request.method == 'GET':
+            has_admin_access = False
+            try:
+                perm = HasCompanyPermission()
+                if perm.has_permission(request, self):
+                    has_admin_access = True
+            except Exception:
+                pass
+
+            if not has_admin_access:
+                from django.utils import timezone
+                from apps.access.models.acceso_edicion import AccesoEdicion
+                from django.db import models
+                from apps.purchases.services.purchase_service import check_user_has_active_subscription
+                
+                edition = self.get_object()
+                now = timezone.now()
+                has_access = False
+                
+                if check_user_has_active_subscription(request.user):
+                    has_access = True
+                elif edition.modalidad == 'GRATUITA':
+                    has_access = True
+                else:
+                    has_access = AccesoEdicion.objects.using('periodico_db').filter(
+                        usuario=request.user,
+                        edicion=edition,
+                        estado='ACTIVO',
+                        fecha_inicio__lte=now
+                    ).filter(
+                        models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+                    ).exists()
+
+                if not has_access:
+                    self.permission_denied(
+                        request,
+                        message="No tienes acceso a esta edición."
+                    )
+        else:
+            perm = HasCompanyPermission()
+            if not perm.has_permission(request, self):
+                self.permission_denied(
+                    request,
+                    message="No tienes permisos para modificar esta edición."
+                )
+
     def get(self, request, emp_id, edi_id):
         self.required_permission = 'EDICION_VER'
-        self.check_permissions(request)
         edition = self.get_object()
         serializer = self.get_serializer(edition)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -428,8 +486,11 @@ class CompanyEditionPageView(APIView):
             now = timezone.now()
             has_access = False
             
-            # Check if edition is free
-            if edition.modalidad == 'GRATUITA':
+            # Check active subscription first
+            from apps.purchases.services.purchase_service import check_user_has_active_subscription
+            if check_user_has_active_subscription(request.user):
+                has_access = True
+            elif edition.modalidad == 'GRATUITA':
                 has_access = True
             else:
                 # Check active AccesoEdicion record

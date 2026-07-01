@@ -11,6 +11,7 @@ from apps.plans.serializers.plan_change import PlanChangeSerializer
 from apps.plans.services.plan_change_service import change_company_plan
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from apps.plans.models.plan import Plan
 
 class PlanListView(generics.ListAPIView):
     """
@@ -148,3 +149,47 @@ class CompanyPlanChangeView(generics.GenericAPIView):
         res_data["warnings"] = warnings
         
         return Response(res_data, status=status.HTTP_200_OK)
+
+class PlanAdminListCreateView(generics.ListCreateAPIView):
+    permission_classes = [IsPlatformSuperadmin]
+    serializer_class = PlanSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return Plan.objects.using('periodico_db').all().order_by('orden')
+
+    def perform_create(self, serializer):
+        serializer.save(
+            creado_por=self.request.user if self.request.user.is_authenticated else None
+        )
+
+class PlanAdminDetailUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsPlatformSuperadmin]
+    serializer_class = PlanSerializer
+    lookup_field = 'plan_code'
+
+    def get_object(self):
+        plan_code = self.kwargs.get('plan_code')
+        try:
+            return Plan.objects.using('periodico_db').get(codigo=plan_code)
+        except Plan.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound(f"El plan con código '{plan_code}' no existe.")
+
+    def perform_destroy(self, instance):
+        # 1. Delete associated features first
+        from apps.plans.models.plan_funcionalidad import PlanFuncionalidad
+        PlanFuncionalidad.objects.using('periodico_db').filter(plan=instance).delete()
+
+        # 2. Check if there are active or inactive companies using this plan
+        from apps.plans.models.empresa_plan import EmpresaPlan
+        has_subscriptions = EmpresaPlan.objects.using('periodico_db').filter(plan=instance).exists()
+
+        if has_subscriptions:
+            # Fallback to logical delete to avoid IntegrityError (foreign key violation)
+            instance.estado = 'INACTIVO'
+            instance.es_publico = False
+            instance.save(using='periodico_db')
+        else:
+            # Physical delete
+            instance.delete(using='periodico_db')

@@ -95,7 +95,7 @@ def run_validations():
             print(f"   -> Esquema '{DB_SCHEMA}' validado correctamente.")
 
         # 6. Table Count Check
-        print(f"6. Verificando cantidad de tablas (se esperan exactamente 54)...")
+        print(f"6. Verificando cantidad de tablas (se esperan 54 o 56)...")
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -110,10 +110,10 @@ def run_validations():
             tables = [r[0] for r in cur.fetchall()]
             table_count = len(tables)
             
-            if table_count == 54:
-                print("   -> Exitoso: Se encontraron exactamente 54 tablas en el esquema.")
+            if table_count in [54, 56]:
+                print(f"   -> Exitoso: Se encontraron {table_count} tablas en el esquema.")
             else:
-                print(f"   -> Fallo: Se encontraron {table_count} tablas en vez de las 54 esperadas.")
+                print(f"   -> Fallo: Se encontraron {table_count} tablas en vez de las 54 o 56 esperadas.")
                 print(f"   Tablas encontradas: {', '.join(tables) if tables else 'Ninguna'}")
                 conn.close()
                 sys.exit(1)

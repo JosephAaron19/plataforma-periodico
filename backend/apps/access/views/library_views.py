@@ -87,17 +87,21 @@ class UserAssignedEditionsListView(APIView):
 
         now = timezone.now()
 
-        # Retrieve editions where user has active access
-        active_access_edition_ids = AccesoEdicion.objects.using('periodico_db').filter(
-            usuario_id=int(user_id),
-            estado='ACTIVO',
-            fecha_inicio__lte=now
-        ).filter(
-            models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
-        ).values_list('edicion_id', flat=True)
+        from apps.purchases.services.purchase_service import check_user_has_active_subscription
+        if check_user_has_active_subscription(user):
+            q_conditions = models.Q()
+        else:
+            # Retrieve editions where user has active access
+            active_access_edition_ids = AccesoEdicion.objects.using('periodico_db').filter(
+                usuario_id=int(user_id),
+                estado='ACTIVO',
+                fecha_inicio__lte=now
+            ).filter(
+                models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+            ).values_list('edicion_id', flat=True)
 
-        # Base conditions: free edition or active access record
-        q_conditions = models.Q(modalidad='GRATUITA') | models.Q(id__in=active_access_edition_ids)
+            # Base conditions: free edition or active access record
+            q_conditions = models.Q(modalidad='GRATUITA') | models.Q(id__in=active_access_edition_ids)
 
         # Retrieve published, non-deleted editions from active, non-deleted companies
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(

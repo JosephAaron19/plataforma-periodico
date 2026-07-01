@@ -20,6 +20,10 @@ urlpatterns = [
     path('api/v1/', include('apps.purchases.urls')),
     # Payments endpoints (webhooks)
     path('api/v1/payments/', include('apps.payments.urls')),
+    # Configuration endpoints (landing Hero settings)
+    path('api/v1/configuration/', include('apps.configuration.urls')),
+    # Content endpoints
+    path('api/v1/', include('apps.content.urls')),
     # Versioned API Health Check endpoints
 
     path('api/v1/health/', HealthCheckView.as_view(), name='health_general'),
@@ -29,6 +33,8 @@ urlpatterns = [
 
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import TemplateView
+from django.urls import re_path
 
 if settings.DEBUG:
     # Ensure MEDIA_URL has correct slash prefix for static helper
@@ -36,3 +42,8 @@ if settings.DEBUG:
     if not media_url.startswith('/'):
         media_url = '/' + media_url
     urlpatterns += static(media_url, document_root=settings.MEDIA_ROOT)
+
+# SPA fallback: redirect any path not starting with api/, admin/, static/, or media/ to index.html
+urlpatterns += [
+    re_path(r'^(?!api/|admin/|static/|media/).*$', TemplateView.as_view(template_name='index.html'), name='frontend-spa'),
+]

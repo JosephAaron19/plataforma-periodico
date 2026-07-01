@@ -82,7 +82,9 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            BASE_DIR.parent / 'Amazonia-landing' / 'dist',
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -122,6 +124,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = '/var/www/static/'
+
+STATICFILES_DIRS = []
+LANDING_DIST_DIR = BASE_DIR.parent / 'Amazonia-landing' / 'dist'
+if LANDING_DIST_DIR.exists():
+    STATICFILES_DIRS.append(LANDING_DIST_DIR)
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = '/var/www/media/'

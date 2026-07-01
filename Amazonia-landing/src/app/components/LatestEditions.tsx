@@ -1,59 +1,67 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import api from '../services/api';
 
-const editions = [
+const getFullImageUrl = (path: string | null) => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const backendHost = import.meta.env.VITE_API_URL 
+    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
+    : 'http://127.0.0.1:8000';
+  return `${backendHost}${path}`;
+};
+
+const defaultEditions = [
   {
     id: 1,
-    title: 'Impulsan desarrollo sostenible en la región',
-    image: 'https://images.unsplash.com/photo-1564750576234-75de3cc54053?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWF6b24lMjByaXZlciUyMGxhbmRzY2FwZXxlbnwxfHx8fDE3ODI0OTE3MzV8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    date: '15 de mayo, 2024',
-    edition: 'N° 1258',
-    day: '15',
-    month: 'MAY'
+    image: 'https://images.unsplash.com/photo-1564750576234-75de3cc54053?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWF6b24lMjByaXZlciUyMGxhbmRzY2FwZXxlbnwxfHx8fDE3ODI0OTE3MzV8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral'
   },
   {
     id: 2,
-    title: 'Proyectos de reforestación avanzan en la zona',
-    image: 'https://images.unsplash.com/photo-1599582964755-971498d2b4a0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWF6b24lMjByYWluZm9yZXN0JTIwc3Vuc2V0JTIwcml2ZXJ8ZW58MXx8fHwxNzgyNDkxNzM0fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    date: '14 de mayo, 2024',
-    edition: 'N° 1257',
-    day: '14',
-    month: 'MAY'
+    image: 'https://images.unsplash.com/photo-1599582964755-971498d2b4a0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWF6b24lMjByYWluZm9yZXN0JTIwc3Vuc2V0JTIwcml2ZXJ8ZW58MXx8fHwxNzgyNDkxNzM0fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral'
   },
   {
     id: 3,
-    title: 'Celebran el día de la madre en toda la ciudad',
-    image: 'https://images.unsplash.com/photo-1612729875065-1385f02852ef?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwZXJ1dmlhbiUyMGxhbmRzY2FwZSUyMG5hdHVyZXxlbnwxfHx8fDE3ODI0OTE3MzV8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    date: '13 de mayo, 2024',
-    edition: 'N° 1256',
-    day: '13',
-    month: 'MAY'
+    image: 'https://images.unsplash.com/photo-1612729875065-1385f02852ef?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwZXJ1dmlhbiUyMGxhbmRzY2FwZSUyMG5hdHVyZXxlbnwxfHx8fDE3ODI0OTE3MzV8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral'
   },
   {
     id: 4,
-    title: 'Productores impulsan agricultura orgánica',
-    image: 'https://images.unsplash.com/photo-1683476656066-c48bfc06621e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0cm9waWNhbCUyMGZydWl0cyUyMG1hcmtldHxlbnwxfHx8fDE3ODI0OTE3MzZ8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    date: '12 de mayo, 2024',
-    edition: 'N° 1255',
-    day: '12',
-    month: 'MAY'
+    image: 'https://images.unsplash.com/photo-1683476656066-c48bfc06621e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0cm9waWNhbCUyMGZydWl0cyUyMG1hcmtldHxlbnwxfHx8fDE3ODI0OTE3MzZ8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral'
   },
   {
     id: 5,
-    title: 'Jóvenes lideran iniciativas ambientales',
-    image: 'https://images.unsplash.com/photo-1622659097509-4d56de14539e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2NjZXIlMjB0ZWFtJTIwY2hpbGRyZW58ZW58MXx8fHwxNzgyNDkxNzM3fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    date: '11 de mayo, 2024',
-    edition: 'N° 1254',
-    day: '11',
-    month: 'MAY'
+    image: 'https://images.unsplash.com/photo-1622659097509-4d56de14539e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2NjZXIlMjB0ZWFtJTIwY2hpbGRyZW58ZW58MXx8fHwxNzgyNDkxNzM7fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral'
   }
 ];
 
 export function LatestEditions() {
+  const [landingEditions, setLandingEditions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLandingEditions = async () => {
+      try {
+        const response = await api.get('/public/editions-landing/');
+        setLandingEditions(response.data || []);
+      } catch (err) {
+        console.warn("Could not fetch landing editions, using defaults:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLandingEditions();
+  }, []);
+
+  const itemsToDisplay = landingEditions.length > 0 ? landingEditions : defaultEditions;
+
   return (
     <div>
       <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-8 select-none">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-orange-100 flex items-center justify-center">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff6600" strokeWidth="2">
@@ -63,64 +71,106 @@ export function LatestEditions() {
                 <line x1="3" y1="10" x2="21" y2="10"/>
               </svg>
             </div>
-            <h2 className="text-3xl">Últimas ediciones</h2>
+            <h2 className="text-3xl font-extrabold text-slate-800">Últimas ediciones</h2>
           </div>
-          <button className="flex items-center gap-2 text-orange-600 hover:text-orange-700">
+          <a 
+            href="https://www.facebook.com/profile.php?id=61590243585425" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-orange-600 hover:text-orange-700 font-bold text-sm transition-colors cursor-pointer"
+          >
             Ver todas
             <ChevronRight size={20} />
-          </button>
+          </a>
         </div>
 
         {/* Navigation */}
-        <div className="flex justify-end gap-2 mb-4">
-          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100">
+        <div className="flex justify-end gap-2 mb-4 select-none">
+          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
             <ChevronLeft size={20} />
           </button>
-          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100">
+          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
             <ChevronRight size={20} />
           </button>
         </div>
 
         {/* Editions Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {editions.map((edition) => (
-            <div key={edition.id} className="bg-white rounded shadow overflow-hidden hover:shadow-md transition-shadow">
-              {/* Logo Header */}
-              <div className="px-2 py-1.5 border-b flex items-center gap-1">
-                <span className="text-xs font-bold" style={{ color: '#ff6600', fontFamily: 'cursive' }}>Amazonía</span>
+        {loading ? (
+          <div className="flex justify-center items-center py-10 gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <span className="text-xs text-slate-500 font-bold">Cargando ediciones...</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {itemsToDisplay.map((item, idx) => (
+              <div 
+                key={item.id || idx} 
+                onClick={() => setSelectedImage(getFullImageUrl(item.imagen || item.image))}
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-all duration-300 h-[216px] flex flex-col group cursor-pointer"
+              >
+                {/* Logo Header */}
+                <div className="px-3 py-2.5 border-b flex items-center gap-1.5 flex-shrink-0 select-none bg-slate-50">
+                  <span className="text-xs font-black tracking-wide" style={{ color: '#ff6600', fontFamily: 'cursive' }}>Amazonía</span>
+                  <svg width="15" height="15" viewBox="0 0 50 50" fill="none">
+                    <circle cx="25" cy="25" r="15" fill="#ff6600"/>
+                    <path d="M25 13 L28 20 L25 19 L22 20 Z" fill="#ffcc00"/>
+                  </svg>
+                </div>
+
+                {/* Image filling 100% of the remaining area */}
+                <div className="flex-1 w-full overflow-hidden bg-slate-950">
+                  <img
+                    src={getFullImageUrl(item.imagen || item.image)}
+                    alt="Edición de portada"
+                    className="w-full h-full object-fill select-none pointer-events-none group-hover:scale-102 transition-transform duration-500"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal for viewing the selected edition image in full detail */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div 
+            className="relative bg-white rounded-2xl overflow-hidden shadow-2xl max-w-xl w-full border border-slate-100 flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-4 py-3 border-b flex items-center justify-between bg-slate-50 select-none">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-black tracking-wide" style={{ color: '#ff6600', fontFamily: 'cursive' }}>Amazonía</span>
                 <svg width="16" height="16" viewBox="0 0 50 50" fill="none">
                   <circle cx="25" cy="25" r="15" fill="#ff6600"/>
                   <path d="M25 13 L28 20 L25 19 L22 20 Z" fill="#ffcc00"/>
                 </svg>
               </div>
-
-              {/* Image */}
-              <div className="relative">
-                <img
-                  src={edition.image}
-                  alt={edition.title}
-                  className="w-full h-24 object-cover"
-                />
-                <div className="absolute top-1 left-1 bg-orange-500 text-white px-1.5 py-1 rounded text-center leading-none">
-                  <div className="text-sm font-bold">{edition.day}</div>
-                  <div className="text-[9px]">{edition.month}</div>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-2">
-                <h3 className="text-[11px] mb-1.5 line-clamp-2 leading-tight">{edition.title}</h3>
-                <div className="text-[10px] text-gray-500 mb-2">
-                  <p>Edición {edition.edition}</p>
-                </div>
-                <button className="w-full py-1 border border-gray-300 rounded text-[10px] hover:bg-gray-50">
-                  Leer edición
-                </button>
-              </div>
+              <button 
+                onClick={() => setSelectedImage(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
+              >
+                <X size={18} strokeWidth={2.5} />
+              </button>
             </div>
-          ))}
+
+            {/* Image display */}
+            <div className="bg-slate-900 p-2 flex items-center justify-center max-h-[80vh] overflow-y-auto">
+              <img
+                src={selectedImage}
+                alt="Edición Amazonía completa"
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow"
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
+
+export default LatestEditions;

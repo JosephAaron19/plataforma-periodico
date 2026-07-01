@@ -43,11 +43,13 @@ const parseCollectionType = (codigo: string): string => {
 };
 
 export const Viewer: React.FC = () => {
-  const { companies, activeCompanyId } = useAuth();
+  const { user, companies, activeCompanyId } = useAuth();
   const navigate = useNavigate();
   
   // States for filters & listings
-  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(activeCompanyId);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(() => {
+    return activeCompanyId || (companies.length > 0 ? companies[0].id : 1);
+  });
   const [editions, setEditions] = useState<Edition[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [search, setSearch] = useState<string>('');
@@ -75,7 +77,7 @@ export const Viewer: React.FC = () => {
     if (activeCompanyId && !selectedCompanyId) {
       setSelectedCompanyId(activeCompanyId);
     }
-  }, [activeCompanyId]);
+  }, [activeCompanyId, selectedCompanyId]);
 
   // Handle window resizing for responsive layouts (single-page on mobile vs double-page on desktop)
   useEffect(() => {
@@ -89,25 +91,57 @@ export const Viewer: React.FC = () => {
 
   // Fetch editions list from API
   const fetchEditions = useCallback(async () => {
-    if (!selectedCompanyId) return;
     setIsLoading(true);
     try {
-      let url = `/companies/${selectedCompanyId}/editions/?page=1&page_size=100`;
-      
-      // Pass status in API filter if possible, otherwise list all for client side filter
-      if (statusFilter !== 'TODAS') {
-        url += `&estado=${statusFilter}`;
-      }
-      if (search) {
-        url += `&titulo=${search}`;
-      }
-      
-      const res = await api.get(url);
+      const isPublisher = companies.length > 0 || user?.email === 'admin';
       let results: Edition[] = [];
-      if (res.data && Array.isArray(res.data.results)) {
-        results = res.data.results;
-      } else if (Array.isArray(res.data)) {
-        results = res.data;
+
+      if (isPublisher) {
+        if (!selectedCompanyId) {
+          setIsLoading(false);
+          return;
+        }
+        let url = `/companies/${selectedCompanyId}/editions/?page=1&page_size=100`;
+        
+        if (statusFilter !== 'TODAS') {
+          url += `&estado=${statusFilter}`;
+        }
+        if (search) {
+          url += `&titulo=${search}`;
+        }
+        
+        const res = await api.get(url);
+        if (res.data && Array.isArray(res.data.results)) {
+          results = res.data.results;
+        } else if (Array.isArray(res.data)) {
+          results = res.data;
+        }
+      } else {
+        if (!user?.id) {
+          setIsLoading(false);
+          return;
+        }
+        const res = await api.get(`/users/${user.id}/editions/`);
+        const rawList = res.data || [];
+        results = rawList.map((ed: any) => ({
+          id: ed.edition_id,
+          codigo: ed.codigo || `ED-${ed.edition_id}`,
+          titulo: ed.title,
+          slug: ed.slug || '',
+          estado: ed.status || 'PUBLICADA',
+          fecha_edicion: ed.publication_date || '',
+          fecha_publicacion: ed.publication_date || null,
+          precio: '0.00',
+          moneda: 'PEN',
+          es_destacada: false,
+          portada_url: ed.portada_url,
+          numero_paginas: ed.numero_paginas || 0,
+          company_id: ed.company_id
+        }));
+
+        if (search) {
+          results = results.filter(ed => ed.titulo.toLowerCase().includes(search.toLowerCase()));
+        }
       }
       
       // Perform local filtering for collection type based on code prefix
@@ -125,7 +159,7 @@ export const Viewer: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedCompanyId, statusFilter, collectionFilter, search]);
+  }, [user, companies, selectedCompanyId, statusFilter, collectionFilter, search]);
 
   useEffect(() => {
     fetchEditions();
@@ -143,15 +177,15 @@ export const Viewer: React.FC = () => {
   }, [isReaderOpen]);
 
   // Safe page image fetching sending authentication headers and converting binary responses to Object URLs
-  const fetchPageImage = useCallback(async (editionId: number, pageNum: number) => {
-    if (!selectedCompanyId) return null;
+  const fetchPageImage = useCallback(async (editionId: number, pageNum: number, companyId: number) => {
+    if (!companyId) return null;
     if (loadedPages[pageNum]) return loadedPages[pageNum];
     if (loadingPagesState[pageNum] === 'loading') return null;
 
     setLoadingPagesState(prev => ({ ...prev, [pageNum]: 'loading' }));
     try {
       const response = await api.get(
-        `/companies/${selectedCompanyId}/editions/${editionId}/pages/${pageNum}/`,
+        `/companies/${companyId}/editions/${editionId}/pages/${pageNum}/`,
         { responseType: 'blob' }
       );
       const blob = response.data;
@@ -164,12 +198,15 @@ export const Viewer: React.FC = () => {
       setLoadingPagesState(prev => ({ ...prev, [pageNum]: 'error' }));
       return null;
     }
-  }, [selectedCompanyId, loadedPages, loadingPagesState]);
+  }, [loadedPages, loadingPagesState]);
 
   // Load and prefetch visible and adjacent pages
   const loadPageRange = useCallback(async (edition: Edition, pageNum: number) => {
     const total = edition.numero_paginas || 0;
     if (total === 0) return;
+
+    // Resolve company ID from edition object
+    const companyId = (edition as any).company_id || (edition as any).empresa?.id || selectedCompanyId || 1;
 
     // Determine current visible pages
     const visiblePages: number[] = [];
@@ -189,7 +226,7 @@ export const Viewer: React.FC = () => {
     // Load visible pages first
     for (const page of visiblePages) {
       if (page >= 1 && page <= total && !loadedPages[page]) {
-        await fetchPageImage(edition.id, page);
+        await fetchPageImage(edition.id, page, companyId);
       }
     }
 
@@ -214,10 +251,10 @@ export const Viewer: React.FC = () => {
 
     for (const page of prefetchPages) {
       if (page >= 1 && page <= total && !loadedPages[page] && loadingPagesState[page] !== 'loading') {
-        fetchPageImage(edition.id, page);
+        fetchPageImage(edition.id, page, companyId);
       }
     }
-  }, [isMobile, fetchPageImage, loadedPages, loadingPagesState]);
+  }, [isMobile, fetchPageImage, loadedPages, loadingPagesState, selectedCompanyId]);
 
   // Refresh page loading whenever current page or selected edition changes
   useEffect(() => {
@@ -322,6 +359,9 @@ export const Viewer: React.FC = () => {
     setCurrentPage(1);
     setIsReaderOpen(true);
 
+    const companyId = (edition as any).company_id || selectedCompanyId || 1;
+    setSelectedCompanyId(companyId);
+
     // Track unique read editions in localStorage
     try {
       const readEditionsRaw = localStorage.getItem('amazonia_read_editions');
@@ -336,9 +376,9 @@ export const Viewer: React.FC = () => {
     }
 
     try {
-      const res = await api.get(`/companies/${selectedCompanyId}/editions/${edition.id}/`);
+      const res = await api.get(`/companies/${companyId}/editions/${edition.id}/`);
       if (res.data) {
-        setSelectedEdition(res.data);
+        setSelectedEdition({ ...res.data, company_id: companyId });
       }
     } catch (err) {
       console.error("Error fetching edition detail on read:", err);
@@ -686,35 +726,38 @@ export const Viewer: React.FC = () => {
         </div>
 
         {/* Newspaper Switcher Dropdown */}
-        <div className="relative group">
-          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
-            Periódico / Empresa
-          </label>
-          <div className="relative">
-            <select
-              value={selectedCompanyId || ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSelectedCompanyId(val ? parseInt(val, 10) : null);
-              }}
-              className="appearance-none bg-slate-900/90 border border-white/15 rounded-xl px-4 py-2.5 pr-10 text-sm font-bold text-white shadow-xl hover:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-500/50 cursor-pointer min-w-[220px]"
-            >
-              {companies.map((comp) => (
-                <option key={comp.id} value={comp.id} className="bg-slate-950 text-white">
-                  {comp.nombre_comercial || comp.nombre}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none group-hover:text-white transition-colors" />
+        {/* Newspaper Switcher Dropdown */}
+        {companies.length > 0 && (
+          <div className="relative group">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+              Periódico / Empresa
+            </label>
+            <div className="relative">
+              <select
+                value={selectedCompanyId || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedCompanyId(val ? parseInt(val, 10) : null);
+                }}
+                className="appearance-none bg-slate-900/90 border border-white/15 rounded-xl px-4 py-2.5 pr-10 text-sm font-bold text-white shadow-xl hover:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-500/50 cursor-pointer min-w-[220px]"
+              >
+                {companies.map((comp) => (
+                  <option key={comp.id} value={comp.id} className="bg-slate-950 text-white">
+                    {comp.nombre_comercial || comp.nombre}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none group-hover:text-white transition-colors" />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Advanced Filter Toolbar */}
       <div className="bg-slate-900/70 border border-white/10 p-4 rounded-2xl shadow-2xl backdrop-blur-md grid grid-cols-1 md:grid-cols-12 gap-4 items-end relative z-10">
         
         {/* Search */}
-        <div className="md:col-span-4 space-y-1.5">
+        <div className={`${companies.length > 0 ? 'md:col-span-4' : 'md:col-span-6'} space-y-1.5`}>
           <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <Search className="w-3.5 h-3.5 text-sky-400" /> Buscar por título
           </label>
@@ -731,7 +774,7 @@ export const Viewer: React.FC = () => {
         </div>
 
         {/* Collection Type Filter */}
-        <div className="md:col-span-3 space-y-1.5">
+        <div className={`${companies.length > 0 ? 'md:col-span-3' : 'md:col-span-5'} space-y-1.5`}>
           <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <Filter className="w-3.5 h-3.5 text-sky-400" /> Tipo de Colección
           </label>
@@ -753,26 +796,28 @@ export const Viewer: React.FC = () => {
         </div>
 
         {/* Status Filter */}
-        <div className="md:col-span-4 space-y-1.5">
-          <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-sky-400" /> Estado de Edición
-          </label>
-          <div className="flex bg-slate-950/85 p-0.5 rounded-xl border border-white/10">
-            {['TODAS', 'PUBLICADA', 'PROGRAMADA', 'BORRADOR'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg transition-all ${
-                  statusFilter === status 
-                    ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' 
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {status === 'TODAS' ? 'Todos' : (status === 'PUBLICADA' ? 'Publicadas' : (status === 'PROGRAMADA' ? 'Programadas' : 'Borradores'))}
-              </button>
-            ))}
+        {companies.length > 0 && (
+          <div className="md:col-span-4 space-y-1.5">
+            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-sky-400" /> Estado de Edición
+            </label>
+            <div className="flex bg-slate-950/85 p-0.5 rounded-xl border border-white/10">
+              {['TODAS', 'PUBLICADA', 'PROGRAMADA', 'BORRADOR'].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status)}
+                  className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg transition-all ${
+                    statusFilter === status 
+                      ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' 
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {status === 'TODAS' ? 'Todos' : (status === 'PUBLICADA' ? 'Publicadas' : (status === 'PROGRAMADA' ? 'Programadas' : 'Borradores'))}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Reset Filter Button */}
         <div className="md:col-span-1">

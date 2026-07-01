@@ -22,7 +22,9 @@ import {
   ArrowRight,
   ChevronRight,
   Menu,
-  Loader2
+  Loader2,
+  Sparkles,
+  Image as ImageIcon
 } from 'lucide-react';
 import { useAuth } from '../../contexts/auth';
 import api from '../../services/api';
@@ -1102,14 +1104,20 @@ const DashboardLayout: React.FC = () => {
   // PUBLISHER DASHBOARD LAYOUT (when user has companies)
   // ----------------------------------------------------
 
-  const navigation = [
+  const editorialNav = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Ediciones', href: '/dashboard/editions', icon: BookCopy },
     { name: 'Visor', href: '/dashboard/viewer', icon: Eye },
     { name: 'Compras', href: '/dashboard/purchases', icon: CreditCard },
-    { name: 'Usuarios', href: '/dashboard/users', icon: User },
     { name: 'Suscriptores', href: '/dashboard/subscribers', icon: Users },
     { name: 'Planes', href: '/dashboard/plans', icon: Building2 },
+  ];
+
+  const webNav = [
+    { name: 'Portada Web', href: '/dashboard/landing-config', icon: Sparkles },
+    { name: 'Ediciones Landing', href: '/dashboard/landing-editions', icon: ImageIcon },
+    { name: 'Lo que está pasando', href: '/dashboard/landing-news', icon: Newspaper },
+    { name: 'Usuarios', href: '/dashboard/users', icon: User },
     { name: 'Configuración', href: '/dashboard/settings', icon: Settings },
   ];
 
@@ -1124,25 +1132,60 @@ const DashboardLayout: React.FC = () => {
           <span className="text-white text-xl font-bold tracking-wide">Amazonia Admin</span>
         </div>
  
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={`flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors duration-150 ${
-                  isActive
-                    ? 'bg-brand-600 text-white shadow-md font-bold'
-                    : 'text-gray-300 hover:bg-dark-800 hover:text-white'
-                }`}
-              >
-                <Icon className={`mr-3 h-5 w-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
-                {item.name}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 px-4 py-6 space-y-6 overflow-y-auto text-left">
+          {/* Grupo 1: Gestión Editorial */}
+          <div>
+            <div className="px-3 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Gestión Editorial
+            </div>
+            <div className="space-y-1">
+              {editorialNav.map((item) => {
+                const isActive = location.pathname === item.href;
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 ${
+                      isActive
+                        ? 'bg-brand-600 text-white shadow-md font-bold'
+                        : 'text-gray-300 hover:bg-dark-800 hover:text-white'
+                    }`}
+                  >
+                    <Icon className={`mr-3 h-5 w-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Grupo 2: Control Web y Sistema */}
+          <div>
+            <div className="px-3 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Control Web y Sistema
+            </div>
+            <div className="space-y-1">
+              {webNav.map((item) => {
+                const isActive = location.pathname === item.href;
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 ${
+                      isActive
+                        ? 'bg-brand-600 text-white shadow-md font-bold'
+                        : 'text-gray-300 hover:bg-dark-800 hover:text-white'
+                    }`}
+                  >
+                    <Icon className={`mr-3 h-5 w-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
         </nav>
  
         <div className="p-4 border-t border-dark-800">
