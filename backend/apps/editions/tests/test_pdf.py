@@ -409,6 +409,7 @@ class PDFUploadAndProcessingTests(SimpleTestCase):
         
         mock_intento_using.return_value.select_for_update.return_value.get.return_value = intento
         mock_proc_using.return_value.select_for_update.return_value.get.return_value = proc
+        mock_eda_using.return_value.filter.return_value.exclude.return_value.exists.return_value = False
         
         # 2 pages. Page 1 is sample (muestra = True), Page 2 is not.
         self.edition.permite_muestra = True
