@@ -48,12 +48,6 @@ def schedule_publication(*, company_id: int, edition_id: int, user: Usuario, sch
         if edition.eliminado:
             raise ValidationError("La edición ha sido eliminada.")
 
-        from apps.plans.selectors.plan_selectors import get_company_active_plan
-        if not get_company_active_plan(company.id):
-            raise ValidationError("La empresa no tiene un plan activo asignado.")
-
-        if not has_plan_feature(company, "EDICION_PUBLICAR"):
-            raise ValidationError("El plan de la empresa no habilita la programación o publicación de ediciones.")
 
         if not edition.codigo or not edition.titulo or not edition.fecha_edicion:
             raise ValidationError("Faltan campos editoriales obligatorios (código, título o fecha de edición).")

@@ -74,38 +74,6 @@ def create_edition(*, empresa_id: int, creador: Usuario, data: dict, ip_address:
         except Empresa.DoesNotExist:
             raise ValidationError("La empresa especificada no existe o fue eliminada.")
 
-        # Check plan feature for edition creation
-        if not has_plan_feature(company, "EDICION_CREAR"):
-            AuditService.record_event(
-                usuario=creador,
-                emp_id=company.id,
-                modulo=AuditoriaModulo.M05,
-                accion=AuditoriaAccion.FUNCIONALIDAD_PLAN_DENEGADA,
-                entidad="Edicion",
-                resultado=AuditoriaResultado.RECHAZADO,
-                motivo="Plan no habilita la creacion de ediciones.",
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
-            raise ValidationError("El plan de la empresa no habilita la creación de ediciones.")
-
-        # Check monthly edition limit (raises ValidationError if reached)
-        try:
-            assert_can_create_edition(company)
-        except ValidationError as e:
-            # Audit limit exceeded event
-            AuditService.record_event(
-                usuario=creador,
-                emp_id=company.id,
-                modulo=AuditoriaModulo.M05,
-                accion=AuditoriaAccion.LIMITE_EDICIONES_ALCANZADO,
-                entidad="Edicion",
-                resultado=AuditoriaResultado.RECHAZADO,
-                motivo=f"Límite de ediciones excedido: {str(e)}",
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
-            raise e
 
         # Handle slug creation/normalization
         raw_slug = data.get('slug')

@@ -155,12 +155,10 @@ class EditionsManagementTests(SimpleTestCase):
     # 2. Create Service
     @patch('apps.editions.services.edition_create_service.transaction.atomic', side_effect=dummy_atomic)
     @patch('apps.editions.services.edition_create_service.Empresa.objects.using')
-    @patch('apps.editions.services.edition_create_service.has_plan_feature', return_value=True)
-    @patch('apps.editions.services.edition_create_service.assert_can_create_edition')
     @patch('apps.editions.services.edition_create_service.Edicion.objects.using')
     @patch('apps.editions.services.edition_create_service.EdicionHistorial.objects.using')
     @patch('apps.editions.services.edition_create_service.AuditService.record_event')
-    def test_create_edition_service_success(self, mock_audit, mock_hist_using, mock_edi_using, mock_limit, mock_feature, mock_emp_using, mock_atomic):
+    def test_create_edition_service_success(self, mock_audit, mock_hist_using, mock_edi_using, mock_emp_using, mock_atomic):
         # Mocks setup
         mock_emp_using.return_value.select_for_update.return_value.get.return_value = self.company
         mock_edi_using.return_value.filter.return_value.exists.return_value = False
@@ -180,17 +178,17 @@ class EditionsManagementTests(SimpleTestCase):
         self.assertEqual(edition.estado, EstadoEdicion.BORRADOR)
         self.assertEqual(edition.titulo, "Nueva Edición")
         self.assertEqual(edition.slug, "nueva-edicion")
-        mock_limit.assert_called_once()
         mock_audit.assert_called_once()
 
-    # 3. Plan Limit Exceeded in Create
+    # 3. Plan Limit Bypassed in Create
     @patch('apps.editions.services.edition_create_service.transaction.atomic', side_effect=dummy_atomic)
     @patch('apps.editions.services.edition_create_service.Empresa.objects.using')
-    @patch('apps.editions.services.edition_create_service.has_plan_feature', return_value=True)
-    @patch('apps.editions.services.edition_create_service.assert_can_create_edition', side_effect=ValidationError("Plan limit reached"))
+    @patch('apps.editions.services.edition_create_service.Edicion.objects.using')
+    @patch('apps.editions.services.edition_create_service.EdicionHistorial.objects.using')
     @patch('apps.editions.services.edition_create_service.AuditService.record_event')
-    def test_create_edition_limit_exceeded(self, mock_audit, mock_limit, mock_feature, mock_emp_using, mock_atomic):
+    def test_create_edition_limit_bypassed(self, mock_audit, mock_hist_using, mock_edi_using, mock_emp_using, mock_atomic):
         mock_emp_using.return_value.select_for_update.return_value.get.return_value = self.company
+        mock_edi_using.return_value.filter.return_value.exists.return_value = False
         
         from apps.editions.services.edition_create_service import create_edition
         
@@ -203,12 +201,8 @@ class EditionsManagementTests(SimpleTestCase):
             "moneda": "PEN"
         }
         
-        with self.assertRaises(ValidationError):
-            create_edition(empresa_id=10, creador=self.editor, data=data)
-        
-        # Verify that LIMITE_EDICIONES_ALCANZADO was recorded
-        _, kwargs = mock_audit.call_args
-        self.assertEqual(kwargs["accion"], "LIMITE_EDICIONES_ALCANZADO")
+        edition = create_edition(empresa_id=10, creador=self.editor, data=data)
+        self.assertEqual(edition.estado, EstadoEdicion.BORRADOR)
 
     # 4. Update Service Whitelist and Immutability when Published
     @patch('apps.editions.services.edition_update_service.transaction.atomic', side_effect=dummy_atomic)

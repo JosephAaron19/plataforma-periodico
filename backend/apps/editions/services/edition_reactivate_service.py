@@ -37,7 +37,6 @@ def reactivate_edition(*, company_id: int, edition_id: int, user: Usuario, targe
         # 3. Validations for target_state = PUBLICADA
         if target_state == EstadoEdicion.PUBLICADA:
             from apps.companies.models.empresa import Empresa
-            from apps.plans.selectors.plan_selectors import get_company_active_plan
             from apps.processing.models.procesamiento import Procesamiento
 
             try:
@@ -46,7 +45,6 @@ def reactivate_edition(*, company_id: int, edition_id: int, user: Usuario, targe
                 raise ValidationError("La empresa especificada no existe o fue eliminada.")
 
             is_company_active = (company.estado == 'ACTIVA')
-            is_plan_active = (get_company_active_plan(company.id) is not None)
             has_prev_pub = (edition.fecha_publicacion is not None)
             has_completed_processing = Procesamiento.objects.using('periodico_db').filter(
                 edicion=edition,
@@ -54,7 +52,7 @@ def reactivate_edition(*, company_id: int, edition_id: int, user: Usuario, targe
                 es_actual=True
             ).exists()
 
-            if not (is_company_active and is_plan_active and has_prev_pub and has_completed_processing):
+            if not (is_company_active and has_prev_pub and has_completed_processing):
                 target_state = EstadoEdicion.BORRADOR
 
         # 4. Transition state

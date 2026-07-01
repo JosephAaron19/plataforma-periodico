@@ -412,8 +412,9 @@ class CompanyEditionNextCodeView(APIView):
         }
         
         def get_next_number(prefix):
-            # Get active editions for company and filter by prefix code
-            queryset = get_company_editions(emp_id).filter(codigo__startswith=prefix)
+            # Get all editions (including deleted) for company and filter by prefix code to avoid code duplication conflicts
+            from apps.editions.models.edicion import Edicion
+            queryset = Edicion.objects.using('periodico_db').filter(empresa_id=emp_id, codigo__startswith=prefix)
             codes = queryset.values_list('codigo', flat=True)
             max_num = 0
             for code in codes:
