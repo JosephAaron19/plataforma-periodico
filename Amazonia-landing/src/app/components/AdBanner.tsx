@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { X, ExternalLink } from 'lucide-react';
-import adPassgoEvents from '../../imports/ad_passgo_events.jpg';
-import adFincontrolSupervision from '../../imports/ad_fincontrol_supervision.jpg';
-import adPassgoTickets from '../../imports/ad_passgo_tickets.jpg';
-import adFincontrolSmart from '../../imports/ad_fincontrol_smart.jpg';
+
+const getFullImageUrl = (path: string | null) => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const backendHost = import.meta.env.VITE_API_URL 
+    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
+    : 'http://127.0.0.1:8000';
+  return `${backendHost}${path}`;
+};
 
 interface Ad {
   image: string;
@@ -13,22 +20,22 @@ interface Ad {
 
 const ADS_LIST: Ad[] = [
   {
-    image: adPassgoEvents,
+    image: "/media/ad_passgo_events.jpg",
     link: "https://passandgo.com.pe",
     alt: "Pass & Go - Ticketing inteligente para eventos"
   },
   {
-    image: adFincontrolSupervision,
+    image: "/media/ad_fincontrol_supervision.jpg",
     link: "https://fincontrol.finatech.com.pe",
     alt: "FinControl - Supervisión inteligente del personal operativo"
   },
   {
-    image: adPassgoTickets,
+    image: "/media/ad_passgo_tickets.jpg",
     link: "https://passandgo.com.pe",
     alt: "Pass & Go - Vende entradas y controla accesos"
   },
   {
-    image: adFincontrolSmart,
+    image: "/media/ad_fincontrol_smart.jpg",
     link: "https://fincontrol.finatech.com.pe",
     alt: "FinControl - Hoy, el control es inteligente"
   }
@@ -84,7 +91,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
         >
           {/* Ad Image with transition */}
           <img
-            src={currentAd.image}
+            src={getFullImageUrl(currentAd.image)}
             alt={currentAd.alt}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.01]"
           />
