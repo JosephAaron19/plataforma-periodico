@@ -87,13 +87,13 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
           href={currentAd.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full overflow-hidden relative cursor-pointer"
+          className="block w-full h-[60px] sm:h-[75px] md:h-[90px] overflow-hidden relative cursor-pointer"
         >
           {/* Ad Image with transition */}
           <img
             src={getFullImageUrl(currentAd.image)}
             alt={currentAd.alt}
-            className="w-full h-auto block object-contain transition-transform duration-550 group-hover:scale-[1.005]"
+            className="w-full h-full block object-cover transition-transform duration-550 group-hover:scale-[1.01]"
           />
 
           {/* Hover Overlay with CTAs */}
