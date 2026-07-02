@@ -45,9 +45,17 @@ if settings.DEBUG:
     urlpatterns += static(media_url, document_root=settings.MEDIA_ROOT)
 
 from django.views.decorators.cache import never_cache
+from django.views.static import serve
+
+# Serve Open Graph image at root level directly
+urlpatterns += [
+    re_path(r'^og-amazonia-diario\.png$', serve, {
+        'document_root': settings.STATICFILES_DIRS[0] if settings.STATICFILES_DIRS else settings.STATIC_ROOT,
+        'path': 'og-amazonia-diario.png'
+    }),
+]
 
 # SPA fallback: redirect any path not starting with api/, admin/, static/, or media/ to index.html
 urlpatterns += [
     re_path(r'^(?!api/|admin/|static/|media/).*$', never_cache(TemplateView.as_view(template_name='index.html')), name='frontend-spa'),
 ]
-
