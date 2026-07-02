@@ -65,10 +65,10 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
 
   return (
     <div className="w-full py-3 select-none px-4 sm:px-6">
-      <div className="max-w-4xl mx-auto relative group overflow-hidden rounded-2xl border border-slate-200/60 shadow-md hover:shadow-lg transition-all duration-300 bg-white">
+      <div className="max-w-7xl mx-auto relative group overflow-hidden rounded-2xl border border-slate-200/60 shadow-md hover:shadow-lg transition-all duration-300 bg-white">
         
         {/* Label Tag */}
-        <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black tracking-widest text-slate-500 uppercase bg-white/95 backdrop-blur-sm border border-slate-200/50 shadow-sm pointer-events-none select-none">
+        <span className="absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black tracking-widest text-slate-500 uppercase bg-white/95 backdrop-blur-sm border border-slate-200/50 shadow-sm pointer-events-none select-none">
           <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
           Anuncio Patrocinado
         </span>
@@ -76,7 +76,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
         {/* Close Button */}
         <button
           onClick={() => setIsVisible(false)}
-          className="absolute top-2 right-2 z-10 p-1.5 rounded-full bg-slate-900/60 hover:bg-slate-900/80 text-white transition-colors backdrop-blur-sm active:scale-95"
+          className="absolute top-2.5 right-2.5 z-10 p-1.5 rounded-full bg-slate-900/60 hover:bg-slate-900/80 text-white transition-colors backdrop-blur-sm active:scale-95"
           title="Ocultar anuncio"
         >
           <X className="w-3 h-3" />
@@ -87,7 +87,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
           href={currentAd.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full h-[60px] sm:h-[75px] md:h-[90px] overflow-hidden relative cursor-pointer"
+          className="block w-full h-[120px] sm:h-[170px] md:h-[220px] lg:h-[260px] overflow-hidden relative cursor-pointer"
         >
           {/* Ad Image with transition */}
           <img
@@ -98,7 +98,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
 
           {/* Hover Overlay with CTAs */}
           <div className="absolute inset-0 bg-slate-950/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-8 pointer-events-none">
-            <div className="bg-white/95 backdrop-blur-sm text-slate-800 rounded-full px-3 py-1 text-[9px] font-black tracking-widest uppercase flex items-center gap-1 shadow-lg transform translate-x-2 group-hover:translate-x-0 transition-transform duration-300 border border-slate-200/60">
+            <div className="bg-white/95 backdrop-blur-sm text-slate-800 rounded-full px-3.5 py-1.5 text-[9px] font-black tracking-widest uppercase flex items-center gap-1 shadow-lg transform translate-x-2 group-hover:translate-x-0 transition-transform duration-300 border border-slate-200/60">
               <span>Visitar Sitio</span>
               <ExternalLink className="w-3 h-3 text-orange-500" />
             </div>
