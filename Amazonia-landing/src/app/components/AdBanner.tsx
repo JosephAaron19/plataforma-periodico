@@ -100,7 +100,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
           <img
             src={getFullImageUrl(currentAd.image)}
             alt={currentAd.alt}
-            className="relative z-10 h-full w-auto object-contain mx-auto transition-transform duration-550 group-hover:scale-[1.01] block"
+            className="relative z-10 w-full h-full object-contain mx-auto transition-transform duration-550 group-hover:scale-[1.01] block"
           />
 
           {/* Hover Overlay with CTAs */}
