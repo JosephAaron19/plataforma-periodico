@@ -17,6 +17,16 @@ class PublicEditionListView(generics.ListAPIView):
     def get_queryset(self):
         qs = get_public_editions()
         
+        # If user is logged in (authenticated) and not admin/superuser, restrict by active subscription
+        user = self.request.user
+        if user and user.is_authenticated and not user.is_superuser and getattr(user, 'usr_correo', '') != 'admin':
+            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+            expiry_date = get_user_active_subscription_expiry(user)
+            if expiry_date:
+                qs = qs.filter(fecha_publicacion__lte=expiry_date)
+            else:
+                qs = qs.none()
+        
         # Public filtering options
         company_id = self.request.query_params.get('company_id')
         if company_id:
@@ -48,7 +58,17 @@ class PublicEditionDetailView(generics.RetrieveAPIView):
         edition = get_public_edition_by_slug(company_slug, slug)
         if not edition:
             raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
+            
+        # If user is logged in (authenticated) and not admin/superuser, restrict by active subscription
+        user = self.request.user
+        if user and user.is_authenticated and not user.is_superuser and getattr(user, 'usr_correo', '') != 'admin':
+            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+            expiry_date = get_user_active_subscription_expiry(user)
+            if not expiry_date or not edition.fecha_publicacion or edition.fecha_publicacion > expiry_date:
+                raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
+                
         return edition
+
 
 
 from rest_framework.views import APIView

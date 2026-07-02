@@ -13,7 +13,7 @@ def can_user_read_edition(user, edition) -> bool:
       - Published and non-deleted edition.
       - Active and non-deleted company.
       - At least one processed page (edp_es_actual=True, edp_estado='GENERADA') is available.
-      - Access rights (free modality, active AccesoEdicion record, or company permission EDICION_VER).
+      - Access rights (active plan subscription, active individual access, company permission EDICION_VER, or admin bypass).
     """
     if not user or not user.is_authenticated or not user.is_active:
         return False
@@ -28,11 +28,22 @@ def can_user_read_edition(user, edition) -> bool:
     if not edition.paginas.filter(edp_es_actual=True, edp_estado='GENERADA').exists():
         return False
 
-    # 1. Modality is free
-    if edition.modalidad == 'GRATUITA':
+    # 1. Admin/Superuser bypass
+    if user.is_superuser or getattr(user, 'usr_correo', '') == 'admin':
         return True
 
-    # 2. Existing active AccesoEdicion record
+    # 2. Company permission (EDICION_VER)
+    effective_perms = calculate_effective_permissions(user.id, edition.empresa_id)
+    if 'EDICION_VER' in effective_perms:
+        return True
+
+    # 3. Active plan subscription check for regular readers
+    from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+    expiry_date = get_user_active_subscription_expiry(user)
+    if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
+        return True
+
+    # 4. Existing active AccesoEdicion record (individual purchase or manual grant)
     now = timezone.now()
     active_access = AccesoEdicion.objects.using('periodico_db').filter(
         usuario=user,
@@ -44,11 +55,6 @@ def can_user_read_edition(user, edition) -> bool:
     ).exists()
     
     if active_access:
-        return True
-
-    # 3. Company permission (EDICION_VER)
-    effective_perms = calculate_effective_permissions(user.id, edition.empresa_id)
-    if 'EDICION_VER' in effective_perms:
         return True
 
     return False
@@ -74,50 +80,95 @@ def get_or_create_reading_access(user, edition) -> AccesoEdicion:
     if access:
         return access
 
-    # 2. Free edition: auto-create GRATUITO access
-    if edition.modalidad == 'GRATUITA':
-        try:
-            tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
-        except AccesoTipo.DoesNotExist:
-            # Fallback or create in memory if test environment doesn't have it
-            tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
-                id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
-            )
-            
-        access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-            usuario=user,
-            edicion=edition,
-            tipo_acceso=tipo_gratuito,
-            defaults={
-                'fecha_inicio': now,
-                'estado': 'ACTIVO',
-                'origen_referencia': 'LECTURA_GRATUITA',
-                'motivo': 'Acceso automático para edición gratuita.'
-            }
-        )
-        return access
+    from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
 
-    # 3. Permissions-based: auto-create ADMIN_TEMPORAL access
-    effective_perms = calculate_effective_permissions(user.id, edition.empresa_id)
-    if 'EDICION_VER' in effective_perms:
-        try:
-            tipo_admin = AccesoTipo.objects.using('periodico_db').get(id=5)
-        except AccesoTipo.DoesNotExist:
-            tipo_admin = AccesoTipo.objects.using('periodico_db').create(
-                id=5, codigo='ADMIN_TEMPORAL', nombre='Acceso administrativo temporal', estado='ACTIVO'
+    is_admin = user.is_superuser or getattr(user, 'usr_correo', '') == 'admin'
+    effective_perms = calculate_effective_permissions(user.id, edition.empresa_id) if not is_admin else []
+    has_perm = is_admin or 'EDICION_VER' in effective_perms
+
+    # 2. Permissions-based / Admin bypass: auto-create ADMIN_TEMPORAL access
+    if has_perm:
+        if edition.modalidad == 'GRATUITA':
+            try:
+                tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
+            except AccesoTipo.DoesNotExist:
+                tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
+                    id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
+                )
+            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+                usuario=user,
+                edicion=edition,
+                tipo_acceso=tipo_gratuito,
+                defaults={
+                    'fecha_inicio': now,
+                    'estado': 'ACTIVO',
+                    'origen_referencia': 'LECTURA_GRATUITA',
+                    'motivo': 'Acceso automático para edición gratuita.'
+                }
             )
-            
-        access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-            usuario=user,
-            edicion=edition,
-            tipo_acceso=tipo_admin,
-            defaults={
-                'fecha_inicio': now,
-                'estado': 'ACTIVO',
-                'origen_referencia': 'PERMISO_VER',
-                'motivo': 'Acceso automático para usuario con permisos de visualización.'
-            }
-        )
-        return access
+            return access
+        else:
+            try:
+                tipo_admin = AccesoTipo.objects.using('periodico_db').get(id=5)
+            except AccesoTipo.DoesNotExist:
+                tipo_admin = AccesoTipo.objects.using('periodico_db').create(
+                    id=5, codigo='ADMIN_TEMPORAL', nombre='Acceso administrativo temporal', estado='ACTIVO'
+                )
+            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+                usuario=user,
+                edicion=edition,
+                tipo_acceso=tipo_admin,
+                defaults={
+                    'fecha_inicio': now,
+                    'estado': 'ACTIVO',
+                    'origen_referencia': 'PERMISO_VER',
+                    'motivo': 'Acceso automático para usuario con permisos de visualización o administrador.'
+                }
+            )
+            return access
+
+    # 3. Regular subscriber access flow
+    expiry_date = get_user_active_subscription_expiry(user)
+    if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
+        if edition.modalidad == 'GRATUITA':
+            try:
+                tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
+            except AccesoTipo.DoesNotExist:
+                tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
+                    id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
+                )
+            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+                usuario=user,
+                edicion=edition,
+                tipo_acceso=tipo_gratuito,
+                defaults={
+                    'fecha_inicio': now,
+                    'estado': 'ACTIVO',
+                    'origen_referencia': 'LECTURA_GRATUITA',
+                    'motivo': 'Acceso automático para edición gratuita.'
+                }
+            )
+            return access
+        else:
+            try:
+                tipo_compra = AccesoTipo.objects.using('periodico_db').get(codigo='COMPRA', estado='ACTIVO')
+            except AccesoTipo.DoesNotExist:
+                tipo_compra = AccesoTipo.objects.using('periodico_db').create(
+                    id=1, codigo='COMPRA', nombre='Compra', estado='ACTIVO'
+                )
+            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+                usuario=user,
+                edicion=edition,
+                tipo_acceso=tipo_compra,
+                defaults={
+                    'fecha_inicio': now,
+                    'fecha_fin': expiry_date,
+                    'estado': 'ACTIVO',
+                    'origen_referencia': 'SUSCRIPCION_PLAN_AUTO',
+                    'motivo': f'Acceso automático por plan de suscripción activo con vencimiento {expiry_date}.'
+                }
+            )
+            return access
 
     raise ValidationError("El usuario no tiene acceso a esta edición.")
+

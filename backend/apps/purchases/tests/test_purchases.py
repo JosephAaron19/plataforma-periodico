@@ -899,3 +899,37 @@ class SubscriptionCalculationsTest(SimpleTestCase):
         mock_compra_using.return_value.filter.return_value = [mock_expired_purchase]
         self.assertFalse(check_user_has_active_subscription(usuario))
 
+    @patch('apps.purchases.models.compra.Compra.objects.using')
+    def test_get_user_active_subscription_expiry(self, mock_compra_using):
+        from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        usuario = _make_usuario()
+        
+        # Case 1: No purchases -> None
+        mock_compra_using.return_value.filter.return_value = []
+        self.assertIsNone(get_user_active_subscription_expiry(usuario))
+
+        # Case 2: Active monthly purchase -> returns expiry date
+        now = timezone.now()
+        mock_purchase = MagicMock()
+        mock_purchase.referencia_interna = "REF-123-MENSUAL"
+        mock_purchase.fecha_confirmacion = now - timedelta(days=10)
+        mock_compra_using.return_value.filter.return_value = [mock_purchase]
+        
+        expiry = get_user_active_subscription_expiry(usuario)
+        self.assertIsNotNone(expiry)
+        self.assertTrue(expiry > now)
+
+        # Case 3: Multiple active purchases -> returns maximum expiry
+        mock_purchase_diario = MagicMock()
+        mock_purchase_diario.referencia_interna = "REF-123-DIARIO"
+        mock_purchase_diario.fecha_confirmacion = now - timedelta(hours=2)
+        
+        mock_compra_using.return_value.filter.return_value = [mock_purchase, mock_purchase_diario]
+        
+        max_expiry = get_user_active_subscription_expiry(usuario)
+        self.assertEqual(max_expiry, expiry)
+
+

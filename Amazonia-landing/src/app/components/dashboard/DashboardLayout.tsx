@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/auth';
 import api from '../../services/api';
+import { AdBanner } from '../AdBanner';
 
 const getFullImageUrl = (path: string | null) => {
   if (!path) return null;
@@ -38,6 +39,15 @@ const getFullImageUrl = (path: string | null) => {
     ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
     : 'http://127.0.0.1:8000';
   return `${backendHost}${path}`;
+};
+
+const iconMap: Record<string, React.ComponentType<any>> = {
+  BookCopy: BookCopy,
+  User: User,
+  CreditCard: CreditCard,
+  Download: Download,
+  Heart: Heart,
+  Bookmark: Bookmark
 };
 
 const DashboardLayout: React.FC = () => {
@@ -66,6 +76,22 @@ const DashboardLayout: React.FC = () => {
   // Real assigned editions state
   const [assignedEditions, setAssignedEditions] = useState<any[]>([]);
   const [isLoadingEditions, setIsLoadingEditions] = useState(false);
+
+  // Real user activities state
+  const [activitiesList, setActivitiesList] = useState<any[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+
+  const fetchActivities = async () => {
+    setIsLoadingActivities(true);
+    try {
+      const res = await api.get('auth/activities/');
+      setActivitiesList(res.data || []);
+    } catch (err) {
+      console.error('Error fetching activities:', err);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
 
   const fetchAssignedEditions = async () => {
     if (!user?.id) return;
@@ -151,6 +177,7 @@ const DashboardLayout: React.FC = () => {
     if (!isPublisher) {
       fetchActiveSubscription();
       fetchAssignedEditions();
+      fetchActivities();
     }
   }, [activeReaderTab, user, companies]);
 
@@ -207,16 +234,6 @@ const DashboardLayout: React.FC = () => {
       { name: 'RPP', logoText: 'RPP', bg: 'bg-[#fec006] text-black', desc: 'Noticias al instante, las 24 horas' },
       { name: 'Exitosa', logoText: 'EXITOSA', bg: 'bg-[#d90429] text-white', desc: 'La voz de los que no tienen voz' },
       { name: 'La República', logoText: 'La República', bg: 'bg-[#c1121f] text-white', desc: 'Periodismo con independencia' }
-    ];
-
-    // Mock activity list
-    const actividades = [
-      { type: 'read', text: 'Leiste una edición', detail: 'La Voz del Sur', sub: 'Edición del 15 Mayo 2024', time: 'Hoy, 09:15 AM', icon: BookCopy, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'download', text: 'Descargaste una edición', detail: 'El Pueblo', sub: 'Edición de Mayo 2024', time: 'Ayer, 04:30 PM', icon: Download, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'favorite', text: 'Marcaste como favorito', detail: 'Correo Arequipa', sub: 'Edición del 14 Mayo 2024', time: 'Ayer, 11:20 AM', icon: Heart, iconColor: 'text-amber-500 bg-amber-50' },
-      { type: 'read', text: 'Abriste una edición', detail: 'Diario Opinión', sub: 'Edición de Abril 2024', time: '12 Mayo, 08:10 AM', icon: BookCopy, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'bookmark', text: 'Guardaste una edición', detail: 'Gestión', sub: 'Edición del 13 Mayo 2024', time: '11 Mayo, 06:45 PM', icon: Bookmark, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'session', text: 'Iniciaste sesión', detail: 'Dispositivo: Chrome', sub: 'Arequipa, Perú', time: '10 Mayo, 08:10 AM', icon: User, iconColor: 'text-emerald-600 bg-emerald-50' }
     ];
 
     return (
@@ -623,37 +640,13 @@ const DashboardLayout: React.FC = () => {
 
                   </div>
 
-                  {/* Te puede interesar colored brand list */}
-                  <div className="space-y-4 text-left">
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <h3 className="text-base font-black text-slate-900">Te puede interesar</h3>
-                        <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Descubre más periódicos que podrían interesarte.</p>
-                      </div>
+                  {/* Te puede interesar / Publicidad */}
+                  <div className="w-full text-left">
+                    <div className="px-4 sm:px-6 mb-2">
+                      <h3 className="text-base font-black text-slate-900">Te puede interesar</h3>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Enlaces de interés y ofertas de nuestros patrocinadores.</p>
                     </div>
-
-                    {/* Colored Cards grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-                      {tePuedeInteresar.map((item, i) => (
-                        <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-all duration-300 min-h-[160px] text-center">
-                          {/* Banner logo */}
-                          <div className={`w-full py-3 text-xs font-serif font-black tracking-tight rounded-xl flex items-center justify-center ${item.bg}`}>
-                            {item.logoText}
-                          </div>
-                          
-                          <p className="text-[10px] text-slate-500 font-semibold my-3.5 leading-snug">
-                            {item.desc}
-                          </p>
-
-                          <Link 
-                            to="/dashboard/viewer" 
-                            className="w-full py-1.5 text-[9px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-brand-50 text-brand-700 hover:border-brand-300 transition-colors"
-                          >
-                            Ver ediciones
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
+                    <AdBanner positionId="dashboard-banner" initialIndex={2} />
                   </div>
                 </>
               )}
@@ -1128,35 +1121,45 @@ const DashboardLayout: React.FC = () => {
 
                 {/* Activity List */}
                 <div className="space-y-5">
-                  {actividades.map((act, i) => {
-                    const ActIcon = act.icon;
-                    return (
-                      <div key={i} className="flex items-start justify-between gap-3 text-left">
-                        <div className="flex items-start gap-3">
-                          {/* Icon wrapper */}
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${act.iconColor}`}>
-                            <ActIcon className="w-4.5 h-4.5" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-slate-800 leading-tight">
-                              {act.text}
-                            </p>
-                            <p className="text-[10px] text-slate-600 font-bold mt-0.5 leading-snug">
-                              {act.detail}
-                            </p>
-                            {act.sub && (
-                              <p className="text-[9px] text-slate-400 font-medium leading-none mt-0.5">
-                                {act.sub}
+                  {isLoadingActivities ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                    </div>
+                  ) : activitiesList.length > 0 ? (
+                    activitiesList.map((act, i) => {
+                      const ActIcon = iconMap[act.icon] || User;
+                      return (
+                        <div key={i} className="flex items-start justify-between gap-3 text-left">
+                          <div className="flex items-start gap-3">
+                            {/* Icon wrapper */}
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${act.iconColor}`}>
+                              <ActIcon className="w-4.5 h-4.5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-800 leading-tight">
+                                {act.text}
                               </p>
-                            )}
+                              <p className="text-[10px] text-slate-600 font-bold mt-0.5 leading-snug">
+                                {act.detail}
+                              </p>
+                              {act.sub && (
+                                <p className="text-[9px] text-slate-400 font-medium leading-none mt-0.5">
+                                  {act.sub}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-[8px] text-slate-400 font-bold whitespace-nowrap mt-0.5 text-right flex-shrink-0">
+                            {act.time}
                           </div>
                         </div>
-                        <div className="text-[8px] text-slate-400 font-bold whitespace-nowrap mt-0.5 text-right flex-shrink-0">
-                          {act.time}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <p className="text-xs text-slate-400 font-bold text-center py-8">
+                      No hay actividades recientes.
+                    </p>
+                  )}
                 </div>
               </div>
 

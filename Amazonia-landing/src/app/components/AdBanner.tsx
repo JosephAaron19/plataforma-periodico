@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ExternalLink } from 'lucide-react';
 
-const getFullImageUrl = (path: string | null) => {
+export const getFullImageUrl = (path: string | null) => {
   if (!path) return '';
 
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -15,13 +15,13 @@ const getFullImageUrl = (path: string | null) => {
   return `${backendHost}${path}`;
 };
 
-interface Ad {
+export interface Ad {
   image: string;
   link: string;
   alt: string;
 }
 
-const ADS_LIST: Ad[] = [
+export const ADS_LIST: Ad[] = [
   {
     image: '/media/ad_passgo_events.jpg',
     link: 'https://passandgo.com.pe',
@@ -43,6 +43,7 @@ const ADS_LIST: Ad[] = [
     alt: 'FinControl - Hoy, el control es inteligente',
   },
 ];
+
 
 interface AdBannerProps {
   positionId: string;

@@ -44,7 +44,10 @@ if settings.DEBUG:
         media_url = '/' + media_url
     urlpatterns += static(media_url, document_root=settings.MEDIA_ROOT)
 
+from django.views.decorators.cache import never_cache
+
 # SPA fallback: redirect any path not starting with api/, admin/, static/, or media/ to index.html
 urlpatterns += [
-    re_path(r'^(?!api/|admin/|static/|media/).*$', TemplateView.as_view(template_name='index.html'), name='frontend-spa'),
+    re_path(r'^(?!api/|admin/|static/|media/).*$', never_cache(TemplateView.as_view(template_name='index.html')), name='frontend-spa'),
 ]
+
