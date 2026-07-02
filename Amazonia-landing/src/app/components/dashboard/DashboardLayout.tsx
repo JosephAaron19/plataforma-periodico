@@ -974,6 +974,7 @@ const DashboardLayout: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                  )}
 
                   {/* Available Plans Grid */}
                   <div className="space-y-6">
