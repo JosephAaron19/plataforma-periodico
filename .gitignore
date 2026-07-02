@@ -13,7 +13,7 @@ venv/
 
 # Node / Frontend
 node_modules/
-dist/
+# dist/
 dist-ssr/
 .vite/
 .eslintcache
