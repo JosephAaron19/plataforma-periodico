@@ -65,7 +65,7 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
 
   return (
     <div className="w-full py-3 select-none px-4 sm:px-6">
-      <div className="max-w-5xl mx-auto relative group overflow-hidden rounded-2xl border border-slate-200/60 shadow-md hover:shadow-lg transition-all duration-300 bg-slate-950">
+      <div className="max-w-5xl mx-auto w-fit relative group overflow-hidden rounded-2xl border border-slate-200/60 shadow-md hover:shadow-lg transition-all duration-300 bg-white">
         
         {/* Label Tag */}
         <span className="absolute top-2.5 left-2.5 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black tracking-widest text-slate-500 uppercase bg-white/95 backdrop-blur-sm border border-slate-200/50 shadow-sm pointer-events-none select-none">
@@ -87,20 +87,13 @@ export function AdBanner({ positionId, initialIndex = 0, autoRotate = true }: Ad
           href={currentAd.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full h-[80px] sm:h-[110px] md:h-[140px] overflow-hidden relative cursor-pointer"
+          className="block h-[80px] sm:h-[110px] md:h-[140px] overflow-hidden relative cursor-pointer"
         >
-          {/* Blurred Background Image to fill empty space with matching colors */}
-          <img
-            src={getFullImageUrl(currentAd.image)}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover blur-xl opacity-35 scale-105 pointer-events-none select-none"
-          />
-
-          {/* Sharp Centered Foreground Image (Never Cropped) */}
+          {/* Sharp Centered Foreground Image (Never Cropped, Shrink-Wrapped) */}
           <img
             src={getFullImageUrl(currentAd.image)}
             alt={currentAd.alt}
-            className="relative z-10 w-full h-full object-contain mx-auto transition-transform duration-550 group-hover:scale-[1.01] block"
+            className="h-full w-auto max-w-full block object-contain mx-auto transition-transform duration-550 group-hover:scale-[1.01]"
           />
 
           {/* Hover Overlay with CTAs */}
