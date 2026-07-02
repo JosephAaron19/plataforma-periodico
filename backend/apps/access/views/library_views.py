@@ -18,31 +18,17 @@ class LibraryListView(APIView):
         GET /api/v1/library/
         Returns a list of all published editions that the authenticated user has access to.
         Access is determined by:
-          - Edition has modality='GRATUITA'
-          - User has an active AccesoEdicion record for the edition
-          - User has company-level permissions (EDICION_VER) or is Platform Superadmin.
+          - Active subscription (all editions published up to the subscription's end date)
+          - User has company-level permissions (EDICION_VER) or is Platform Superadmin/admin.
         """
         user = request.user
         now = timezone.now()
 
         # Check if the user is platform superadmin
-        is_super = is_platform_superadmin(user)
-
-        # Retrieve editions where user has active access
-        active_access_edition_ids = AccesoEdicion.objects.using('periodico_db').filter(
-            usuario=user,
-            estado='ACTIVO',
-            fecha_inicio__lte=now
-        ).filter(
-            models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
-        ).values_list('edicion_id', flat=True)
-
-        # Base conditions: free edition or active access record
-        q_conditions = models.Q(modalidad='GRATUITA') | models.Q(id__in=active_access_edition_ids)
+        is_super = is_platform_superadmin(user) or getattr(user, 'usr_correo', '') == 'admin'
 
         if is_super:
-            # Superadmin has access to editions of all active companies, no extra company filter needed
-            pass
+            q_conditions = models.Q()
         else:
             # Check company context permissions
             company_ids_with_permission = []
@@ -54,8 +40,18 @@ class LibraryListView(APIView):
                 if 'EDICION_VER' in perms:
                     company_ids_with_permission.append(company_id)
                     
+            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+            expiry_date = get_user_active_subscription_expiry(user)
+            
             if company_ids_with_permission:
-                q_conditions |= models.Q(empresa_id__in=company_ids_with_permission)
+                q_conditions = models.Q(empresa_id__in=company_ids_with_permission)
+                if expiry_date:
+                    q_conditions |= models.Q(fecha_publicacion__lte=expiry_date)
+            else:
+                if expiry_date:
+                    q_conditions = models.Q(fecha_publicacion__lte=expiry_date)
+                else:
+                    q_conditions = models.Q(id__in=[])
 
         # Retrieve published, non-deleted editions from active, non-deleted companies
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(
@@ -74,7 +70,7 @@ from rest_framework.exceptions import PermissionDenied
 class UserAssignedEditionsListView(APIView):
     """
     GET /api/v1/users/{user_id}/editions/
-    Returns all published editions assigned to the user (via active AccesoEdicion or GRATUITA modality).
+    Returns all published editions assigned to the user (via active plan subscription).
     """
     permission_classes = [IsAuthenticated]
 
@@ -85,23 +81,18 @@ class UserAssignedEditionsListView(APIView):
         if user.id != int(user_id) and getattr(user, 'usr_correo', '') != 'admin':
             raise PermissionDenied("No tienes permiso para consultar las ediciones de este usuario.")
 
-        now = timezone.now()
-
-        from apps.purchases.services.purchase_service import check_user_has_active_subscription
-        if check_user_has_active_subscription(user):
+        # Admin bypass
+        if user.is_superuser or getattr(user, 'usr_correo', '') == 'admin':
             q_conditions = models.Q()
         else:
-            # Retrieve editions where user has active access
-            active_access_edition_ids = AccesoEdicion.objects.using('periodico_db').filter(
-                usuario_id=int(user_id),
-                estado='ACTIVO',
-                fecha_inicio__lte=now
-            ).filter(
-                models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
-            ).values_list('edicion_id', flat=True)
-
-            # Base conditions: free edition or active access record
-            q_conditions = models.Q(modalidad='GRATUITA') | models.Q(id__in=active_access_edition_ids)
+            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+            expiry_date = get_user_active_subscription_expiry(user)
+            if expiry_date:
+                # Active subscriber sees all editions published up to the subscription's expiration date
+                q_conditions = models.Q(fecha_publicacion__lte=expiry_date)
+            else:
+                # No active subscription -> see no editions
+                q_conditions = models.Q(id__in=[])
 
         # Retrieve published, non-deleted editions from active, non-deleted companies
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(
@@ -146,3 +137,4 @@ class UserAssignedEditionsListView(APIView):
             })
 
         return Response(data, status=status.HTTP_200_OK)
+

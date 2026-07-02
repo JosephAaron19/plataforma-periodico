@@ -366,6 +366,26 @@ def confirm_purchase_mock(
                 ref_upper = (compra.referencia_interna or '').upper()
                 is_plan = any(kw in ref_upper for kw in ['DIARIO', 'MENSUAL', 'ANUAL'])
                 
+                # To avoid unique constraint violation (uq_com_usuario_edicion_pagada)
+                # for plan purchases, dynamically assign a different published edition 
+                # that has not been purchased by the user yet.
+                if is_plan:
+                    paid_edition_ids = Compra.objects.using(using).filter(
+                        usuario=usuario,
+                        estado=Compra.PAGADO
+                    ).exclude(id=compra.id).values_list('edicion_id', flat=True)
+                    
+                    if edicion.id in paid_edition_ids:
+                        from apps.editions.models.edicion import Edicion
+                        alt_edition = Edicion.objects.using(using).filter(estado='PUBLICADA').exclude(id__in=paid_edition_ids).first()
+                        if not alt_edition:
+                            alt_edition = Edicion.objects.using(using).exclude(id__in=paid_edition_ids).first()
+                        
+                        if alt_edition:
+                            compra.edicion = alt_edition
+                            compra.empresa_id = alt_edition.empresa_id
+                            edicion = alt_edition
+                
                 has_active_plan = False
                 if is_plan:
                     from apps.plans.services.user_plan_service import check_user_has_active_plan
@@ -564,6 +584,15 @@ def check_user_has_active_subscription(user, using='periodico_db') -> bool:
     Checks if the user has an active subscription (DIARIO, MENSUAL, or ANUAL)
     whose validity period (calculated from purchase confirmation time) has not expired.
     """
+    expiry = get_user_active_subscription_expiry(user, using=using)
+    return expiry is not None
+
+
+def get_user_active_subscription_expiry(user, using='periodico_db'):
+    """
+    Returns the maximum expiration date of the user's active subscriptions (DIARIO, MENSUAL, or ANUAL).
+    If the user has no active subscription, returns None.
+    """
     from django.utils import timezone
     from apps.purchases.models.compra import Compra
     from datetime import timedelta
@@ -591,6 +620,7 @@ def check_user_has_active_subscription(user, using='periodico_db') -> bool:
         fecha_confirmacion__isnull=False
     )
     
+    max_expiry = None
     for purchase in purchases:
         ref = purchase.referencia_interna.upper()
         start = purchase.fecha_confirmacion
@@ -606,7 +636,8 @@ def check_user_has_active_subscription(user, using='periodico_db') -> bool:
             continue
             
         if start <= now < expiry:
-            return True
-            
-    return False
+            if max_expiry is None or expiry > max_expiry:
+                max_expiry = expiry
+                
+    return max_expiry
 
