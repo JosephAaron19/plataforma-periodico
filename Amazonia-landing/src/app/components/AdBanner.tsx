@@ -76,7 +76,7 @@ export function AdBanner({
 
   return (
     <section className="w-full bg-white py-4 select-none px-4 sm:px-6">
-      <div className="max-w-4xl mx-auto w-full relative group overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-md hover:shadow-lg transition-all duration-300">
+      <div className="max-w-4xl mx-auto w-fit relative group overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-md hover:shadow-lg transition-all duration-300">
 
         {/* Close Button */}
         <button
@@ -94,12 +94,12 @@ export function AdBanner({
           href={currentAd.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full h-[105px] sm:h-[130px] md:h-[145px] overflow-hidden relative cursor-pointer bg-white"
+          className="block h-[105px] sm:h-[130px] md:h-[145px] overflow-hidden relative cursor-pointer bg-white"
         >
           <img
             src={getFullImageUrl(currentAd.image)}
             alt={currentAd.alt}
-            className="w-full h-full object-contain block mx-auto transition-transform duration-500 group-hover:scale-[1.01]"
+            className="h-full w-auto max-w-full block mx-auto transition-transform duration-500 group-hover:scale-[1.01]"
           />
 
           {/* Hover Overlay with CTA */}
