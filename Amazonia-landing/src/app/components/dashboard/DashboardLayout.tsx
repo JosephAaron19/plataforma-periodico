@@ -1194,6 +1194,7 @@ const DashboardLayout: React.FC = () => {
     { name: 'Ediciones Landing', href: '/dashboard/landing-editions', icon: ImageIcon },
     { name: 'Lo que está pasando', href: '/dashboard/landing-news', icon: Newspaper },
     { name: 'Usuarios', href: '/dashboard/users', icon: User },
+    { name: 'Métodos de Pago', href: '/dashboard/payments-methods', icon: CreditCard },
     { name: 'Configuración', href: '/dashboard/settings', icon: Settings },
   ];
 

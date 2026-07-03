@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'apps.content',
     'apps.seo',
     'apps.configuration',
+    'apps.payments_methods_admin',
 ]
 
 MIDDLEWARE = [

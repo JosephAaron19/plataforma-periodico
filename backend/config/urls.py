@@ -22,6 +22,8 @@ urlpatterns = [
     path('api/v1/payments/', include('apps.payments.urls')),
     # Configuration endpoints (landing Hero settings)
     path('api/v1/configuration/', include('apps.configuration.urls')),
+    # Payments Methods Admin endpoints
+    path('api/v1/', include('apps.payments_methods_admin.urls')),
     # Content endpoints
     path('api/v1/', include('apps.content.urls')),
     # Versioned API Health Check endpoints
