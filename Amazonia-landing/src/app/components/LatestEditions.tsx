@@ -40,6 +40,18 @@ export function LatestEditions() {
   const [landingEditions, setLandingEditions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, clientWidth } = scrollContainerRef.current;
+      const scrollAmount = clientWidth * 0.8;
+      scrollContainerRef.current.scrollTo({
+        left: direction === 'left' ? scrollLeft - scrollAmount : scrollLeft + scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   useEffect(() => {
     const fetchLandingEditions = async () => {
@@ -84,12 +96,28 @@ export function LatestEditions() {
           </a>
         </div>
 
+        <style dangerouslySetInnerHTML={{__html: `
+          .no-scrollbar::-webkit-scrollbar {
+            display: none;
+          }
+          .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+        `}} />
+
         {/* Navigation */}
         <div className="flex justify-end gap-2 mb-4 select-none">
-          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
+          <button 
+            onClick={() => scroll('left')}
+            className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer"
+          >
             <ChevronLeft size={20} />
           </button>
-          <button className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
+          <button 
+            onClick={() => scroll('right')}
+            className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer"
+          >
             <ChevronRight size={20} />
           </button>
         </div>
@@ -101,12 +129,15 @@ export function LatestEditions() {
             <span className="text-xs text-slate-500 font-bold">Cargando ediciones...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div 
+            ref={scrollContainerRef}
+            className="flex overflow-x-auto no-scrollbar scroll-smooth gap-3 pb-3"
+          >
             {itemsToDisplay.map((item, idx) => (
               <div 
                 key={item.id || idx} 
                 onClick={() => setSelectedImage(getFullImageUrl(item.imagen || item.image))}
-                className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-all duration-300 h-[216px] flex flex-col group cursor-pointer"
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-all duration-300 h-[216px] w-[calc(50%-6px)] sm:w-[calc(33.333%-8px)] lg:w-[calc(20%-9.6px)] flex-shrink-0 flex flex-col group cursor-pointer"
               >
                 {/* Logo Header */}
                 <div className="px-3 py-2.5 border-b flex items-center gap-1.5 flex-shrink-0 select-none bg-slate-50">

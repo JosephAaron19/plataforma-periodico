@@ -12,6 +12,7 @@ import { CTASection } from './components/CTASection';
 import { Footer } from './components/Footer';
 import { AuthModal } from './components/AuthModal';
 import { VerifyEmailPage } from './components/VerifyEmailPage';
+import NoticiasPage from './components/NoticiasPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import DashboardOverview from './components/dashboard/DashboardOverview';
 import Editions from './components/dashboard/Editions';
@@ -88,6 +89,7 @@ function AppContent() {
       />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/payment" element={<PaymentPage />} />
+      <Route path="/noticias" element={<NoticiasPage />} />
       
       {/* Rutas Protegidas del Dashboard */}
       <Route 
