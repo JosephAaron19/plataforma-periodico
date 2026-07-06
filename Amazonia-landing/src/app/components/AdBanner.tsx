@@ -3,16 +3,23 @@ import { X, ExternalLink } from 'lucide-react';
 
 export const getFullImageUrl = (path: string | null) => {
   if (!path) return '';
-
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-
-  const backendHost = import.meta.env.VITE_API_URL
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '')
-    : 'http://127.0.0.1:8000';
-
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 export interface Ad {

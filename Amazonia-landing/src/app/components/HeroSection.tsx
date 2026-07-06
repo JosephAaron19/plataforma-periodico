@@ -7,17 +7,20 @@ const getFullImageUrl = (path: string | null) => {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  let backendHost = 'http://127.0.0.1:8000';
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
   if (import.meta.env.VITE_API_URL) {
     if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
       backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
-    } else {
-      backendHost = typeof window !== 'undefined' ? window.location.origin : '';
     }
-  } else if (typeof window !== 'undefined') {
-    backendHost = window.location.origin;
   }
-  return `${backendHost}${encodeURI(path)}`;
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 export function HeroSection() {

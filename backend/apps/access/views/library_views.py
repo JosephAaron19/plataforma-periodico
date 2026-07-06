@@ -40,18 +40,24 @@ class LibraryListView(APIView):
                 if 'EDICION_VER' in perms:
                     company_ids_with_permission.append(company_id)
                     
-            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-            expiry_date = get_user_active_subscription_expiry(user)
+            from apps.purchases.services.purchase_service import get_user_active_subscription_details
+            start_date, expiry_date = get_user_active_subscription_details(user)
             
+            # Base Q conditions: free editions are always visible
+            q_free = models.Q(modalidad='GRATUITA')
+            
+            # Paid editions conditions
+            q_paid_conditions = models.Q(id__in=[])
             if company_ids_with_permission:
-                q_conditions = models.Q(empresa_id__in=company_ids_with_permission)
+                q_paid_conditions = models.Q(empresa_id__in=company_ids_with_permission)
                 if expiry_date:
-                    q_conditions |= models.Q(fecha_publicacion__lte=expiry_date)
+                    q_paid_conditions |= models.Q(fecha_publicacion__gte=start_date, fecha_publicacion__lte=expiry_date)
             else:
                 if expiry_date:
-                    q_conditions = models.Q(fecha_publicacion__lte=expiry_date)
-                else:
-                    q_conditions = models.Q(id__in=[])
+                    q_paid_conditions = models.Q(fecha_publicacion__gte=start_date, fecha_publicacion__lte=expiry_date)
+            
+            q_paid = models.Q(modalidad='PAGO') & q_paid_conditions
+            q_conditions = q_free | q_paid
 
         # Retrieve published, non-deleted editions from active, non-deleted companies
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(
@@ -85,14 +91,19 @@ class UserAssignedEditionsListView(APIView):
         if user.is_superuser or getattr(user, 'usr_correo', '') == 'admin':
             q_conditions = models.Q()
         else:
-            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-            expiry_date = get_user_active_subscription_expiry(user)
+            from apps.purchases.services.purchase_service import get_user_active_subscription_details
+            start_date, expiry_date = get_user_active_subscription_details(user)
+            
+            # Base Q conditions: free editions are always visible
+            q_free = models.Q(modalidad='GRATUITA')
+            
             if expiry_date:
-                # Active subscriber sees all editions published up to the subscription's expiration date
-                q_conditions = models.Q(fecha_publicacion__lte=expiry_date)
+                # Active subscriber sees all free editions AND paid editions published during subscription period
+                q_paid = models.Q(modalidad='PAGO', fecha_publicacion__gte=start_date, fecha_publicacion__lte=expiry_date)
+                q_conditions = q_free | q_paid
             else:
-                # No active subscription -> see no editions
-                q_conditions = models.Q(id__in=[])
+                # No active subscription -> see only free editions
+                q_conditions = q_free
 
         # Retrieve published, non-deleted editions from active, non-deleted companies
         editions = Edicion.objects.using('periodico_db').select_related('empresa').filter(

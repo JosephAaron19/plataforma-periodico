@@ -922,7 +922,7 @@ class SubscriptionCalculationsTest(SimpleTestCase):
         self.assertIsNotNone(expiry)
         self.assertTrue(expiry > now)
 
-        # Case 3: Multiple active purchases -> returns maximum expiry
+        # Case 3: Multiple active purchases -> returns chained maximum expiry
         mock_purchase_diario = MagicMock()
         mock_purchase_diario.referencia_interna = "REF-123-DIARIO"
         mock_purchase_diario.fecha_confirmacion = now - timedelta(hours=2)
@@ -930,6 +930,32 @@ class SubscriptionCalculationsTest(SimpleTestCase):
         mock_compra_using.return_value.filter.return_value = [mock_purchase, mock_purchase_diario]
         
         max_expiry = get_user_active_subscription_expiry(usuario)
-        self.assertEqual(max_expiry, expiry)
+        self.assertEqual(max_expiry, expiry + timedelta(hours=24))
+
+    @patch('apps.purchases.models.compra.Compra.objects.using')
+    def test_get_user_active_subscription_details(self, mock_compra_using):
+        from apps.purchases.services.purchase_service import get_user_active_subscription_details
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        usuario = _make_usuario()
+        
+        # Case 1: No purchases -> (None, None)
+        mock_compra_using.return_value.filter.return_value = []
+        start, expiry = get_user_active_subscription_details(usuario)
+        self.assertIsNone(start)
+        self.assertIsNone(expiry)
+
+        # Case 2: Active monthly purchase -> returns start and expiry date
+        now = timezone.now()
+        mock_purchase = MagicMock()
+        mock_purchase.referencia_interna = "REF-123-MENSUAL"
+        mock_purchase.fecha_confirmacion = now - timedelta(days=10)
+        mock_compra_using.return_value.filter.return_value = [mock_purchase]
+        
+        start, expiry = get_user_active_subscription_details(usuario)
+        self.assertEqual(start, mock_purchase.fecha_confirmacion)
+        self.assertIsNotNone(expiry)
+        self.assertTrue(expiry > now)
 
 

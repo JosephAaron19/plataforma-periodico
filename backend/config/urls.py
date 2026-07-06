@@ -57,7 +57,26 @@ urlpatterns += [
     }),
 ]
 
+# Serve PWA manifest, service worker and logo at root level
+from django.views.static import serve
+from django.conf import settings
+
+urlpatterns += [
+    path('sw.js', serve, {
+        'document_root': settings.STATICFILES_DIRS[0] if settings.STATICFILES_DIRS else settings.STATIC_ROOT,
+        'path': 'sw.js'
+    }),
+    path('manifest.json', serve, {
+        'document_root': settings.STATICFILES_DIRS[0] if settings.STATICFILES_DIRS else settings.STATIC_ROOT,
+        'path': 'manifest.json'
+    }),
+    path('logo_amazonia.png', serve, {
+        'document_root': settings.STATICFILES_DIRS[0] if settings.STATICFILES_DIRS else settings.STATIC_ROOT,
+        'path': 'logo_amazonia.png'
+    }),
+]
+
 # SPA fallback: redirect any path not starting with api/, admin/, static/, or media/ to index.html
 urlpatterns += [
-    re_path(r'^(?!api/|admin/|static/|media/).*$', never_cache(TemplateView.as_view(template_name='index.html')), name='frontend-spa'),
+    re_path(r'^(?!api/|admin/|static/|media/|sw\.js|manifest\.json|logo_amazonia\.png).*$', never_cache(TemplateView.as_view(template_name='index.html')), name='frontend-spa'),
 ]

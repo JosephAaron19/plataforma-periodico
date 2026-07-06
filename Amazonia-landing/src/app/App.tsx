@@ -120,13 +120,17 @@ function AppContent() {
   );
 }
 
+import { PWAProvider } from './contexts/PWAContext';
+
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-        <Toaster position="top-right" richColors />
-      </Router>
+      <PWAProvider>
+        <Router>
+          <AppContent />
+          <Toaster position="top-right" richColors />
+        </Router>
+      </PWAProvider>
     </AuthProvider>
   );
 }

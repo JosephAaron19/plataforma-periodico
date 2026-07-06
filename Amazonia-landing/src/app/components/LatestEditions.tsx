@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, X, Download } from 'lucide-react';
 import api from '../services/api';
+import { usePWA } from '../contexts/PWAContext';
+import { useAuth } from '../contexts/auth';
 
 const getFullImageUrl = (path: string | null) => {
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const backendHost = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
-    : 'http://127.0.0.1:8000';
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 const defaultEditions = [
@@ -37,6 +49,8 @@ const defaultEditions = [
 ];
 
 export function LatestEditions() {
+  const { isAuthenticated } = useAuth();
+  const { isInstallable, installPWA } = usePWA();
   const [landingEditions, setLandingEditions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -158,6 +172,18 @@ export function LatestEditions() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {isAuthenticated && isInstallable && (
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={installPWA}
+              className="flex items-center gap-2 px-6 py-3 bg-[#1a4d2e] hover:bg-[#153e25] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer uppercase tracking-wider hover:scale-102 duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            >
+              <Download size={14} />
+              Descargar app
+            </button>
           </div>
         )}
       </div>

@@ -32,15 +32,19 @@ def can_user_read_edition(user, edition) -> bool:
     if user.is_superuser or getattr(user, 'usr_correo', '') == 'admin':
         return True
 
-    # 2. Company permission (EDICION_VER)
+    # 2. Free edition bypass: any authenticated active user can read free editions
+    if edition.modalidad == 'GRATUITA':
+        return True
+
+    # 3. Company permission (EDICION_VER)
     effective_perms = calculate_effective_permissions(user.id, edition.empresa_id)
     if 'EDICION_VER' in effective_perms:
         return True
 
-    # 3. Active plan subscription check for regular readers
-    from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-    expiry_date = get_user_active_subscription_expiry(user)
-    if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
+    # 4. Active plan subscription check for regular readers
+    from apps.purchases.services.purchase_service import get_user_active_subscription_details
+    start_date, expiry_date = get_user_active_subscription_details(user)
+    if expiry_date and edition.fecha_publicacion and start_date <= edition.fecha_publicacion <= expiry_date:
         return True
 
     # 4. Existing active AccesoEdicion record (individual purchase or manual grant)
@@ -80,95 +84,75 @@ def get_or_create_reading_access(user, edition) -> AccesoEdicion:
     if access:
         return access
 
-    from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
+    # 2. Free edition flow: auto-create GRATUITO access for any user
+    if edition.modalidad == 'GRATUITA':
+        try:
+            tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
+        except AccesoTipo.DoesNotExist:
+            tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
+                id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
+            )
+        access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+            usuario=user,
+            edicion=edition,
+            tipo_acceso=tipo_gratuito,
+            defaults={
+                'fecha_inicio': now,
+                'estado': 'ACTIVO',
+                'origen_referencia': 'LECTURA_GRATUITA',
+                'motivo': 'Acceso automático para edición gratuita.'
+            }
+        )
+        return access
 
+    # 3. Permissions-based / Admin bypass: auto-create ADMIN_TEMPORAL access (for paid editions)
     is_admin = user.is_superuser or getattr(user, 'usr_correo', '') == 'admin'
     effective_perms = calculate_effective_permissions(user.id, edition.empresa_id) if not is_admin else []
     has_perm = is_admin or 'EDICION_VER' in effective_perms
 
-    # 2. Permissions-based / Admin bypass: auto-create ADMIN_TEMPORAL access
     if has_perm:
-        if edition.modalidad == 'GRATUITA':
-            try:
-                tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
-            except AccesoTipo.DoesNotExist:
-                tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
-                    id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
-                )
-            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-                usuario=user,
-                edicion=edition,
-                tipo_acceso=tipo_gratuito,
-                defaults={
-                    'fecha_inicio': now,
-                    'estado': 'ACTIVO',
-                    'origen_referencia': 'LECTURA_GRATUITA',
-                    'motivo': 'Acceso automático para edición gratuita.'
-                }
+        try:
+            tipo_admin = AccesoTipo.objects.using('periodico_db').get(id=5)
+        except AccesoTipo.DoesNotExist:
+            tipo_admin = AccesoTipo.objects.using('periodico_db').create(
+                id=5, codigo='ADMIN_TEMPORAL', nombre='Acceso administrativo temporal', estado='ACTIVO'
             )
-            return access
-        else:
-            try:
-                tipo_admin = AccesoTipo.objects.using('periodico_db').get(id=5)
-            except AccesoTipo.DoesNotExist:
-                tipo_admin = AccesoTipo.objects.using('periodico_db').create(
-                    id=5, codigo='ADMIN_TEMPORAL', nombre='Acceso administrativo temporal', estado='ACTIVO'
-                )
-            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-                usuario=user,
-                edicion=edition,
-                tipo_acceso=tipo_admin,
-                defaults={
-                    'fecha_inicio': now,
-                    'estado': 'ACTIVO',
-                    'origen_referencia': 'PERMISO_VER',
-                    'motivo': 'Acceso automático para usuario con permisos de visualización o administrador.'
-                }
-            )
-            return access
+        access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+            usuario=user,
+            edicion=edition,
+            tipo_acceso=tipo_admin,
+            defaults={
+                'fecha_inicio': now,
+                'estado': 'ACTIVO',
+                'origen_referencia': 'PERMISO_VER',
+                'motivo': 'Acceso automático para usuario con permisos de visualización o administrador.'
+            }
+        )
+        return access
 
-    # 3. Regular subscriber access flow
-    expiry_date = get_user_active_subscription_expiry(user)
-    if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
-        if edition.modalidad == 'GRATUITA':
-            try:
-                tipo_gratuito = AccesoTipo.objects.using('periodico_db').get(id=2)
-            except AccesoTipo.DoesNotExist:
-                tipo_gratuito = AccesoTipo.objects.using('periodico_db').create(
-                    id=2, codigo='GRATUITO', nombre='Gratuito', estado='ACTIVO'
-                )
-            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-                usuario=user,
-                edicion=edition,
-                tipo_acceso=tipo_gratuito,
-                defaults={
-                    'fecha_inicio': now,
-                    'estado': 'ACTIVO',
-                    'origen_referencia': 'LECTURA_GRATUITA',
-                    'motivo': 'Acceso automático para edición gratuita.'
-                }
+    # 4. Regular subscriber access flow (for paid editions)
+    from apps.purchases.services.purchase_service import get_user_active_subscription_details
+    start_date, expiry_date = get_user_active_subscription_details(user)
+    if expiry_date and edition.fecha_publicacion and start_date <= edition.fecha_publicacion <= expiry_date:
+        try:
+            tipo_compra = AccesoTipo.objects.using('periodico_db').get(codigo='COMPRA', estado='ACTIVO')
+        except AccesoTipo.DoesNotExist:
+            tipo_compra = AccesoTipo.objects.using('periodico_db').create(
+                id=1, codigo='COMPRA', nombre='Compra', estado='ACTIVO'
             )
-            return access
-        else:
-            try:
-                tipo_compra = AccesoTipo.objects.using('periodico_db').get(codigo='COMPRA', estado='ACTIVO')
-            except AccesoTipo.DoesNotExist:
-                tipo_compra = AccesoTipo.objects.using('periodico_db').create(
-                    id=1, codigo='COMPRA', nombre='Compra', estado='ACTIVO'
-                )
-            access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
-                usuario=user,
-                edicion=edition,
-                tipo_acceso=tipo_compra,
-                defaults={
-                    'fecha_inicio': now,
-                    'fecha_fin': expiry_date,
-                    'estado': 'ACTIVO',
-                    'origen_referencia': 'SUSCRIPCION_PLAN_AUTO',
-                    'motivo': f'Acceso automático por plan de suscripción activo con vencimiento {expiry_date}.'
-                }
-            )
-            return access
+        access, created = AccesoEdicion.objects.using('periodico_db').get_or_create(
+            usuario=user,
+            edicion=edition,
+            tipo_acceso=tipo_compra,
+            defaults={
+                'fecha_inicio': now,
+                'fecha_fin': expiry_date,
+                'estado': 'ACTIVO',
+                'origen_referencia': 'SUSCRIPCION_PLAN_AUTO',
+                'motivo': f'Acceso automático por plan de suscripción activo iniciado en {start_date} con vencimiento {expiry_date}.'
+            }
+        )
+        return access
 
     raise ValidationError("El usuario no tiene acceso a esta edición.")
 

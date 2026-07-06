@@ -20,12 +20,16 @@ class PublicEditionListView(generics.ListAPIView):
         # If user is logged in (authenticated) and not admin/superuser, restrict by active subscription
         user = self.request.user
         if user and user.is_authenticated and not user.is_superuser and getattr(user, 'usr_correo', '') != 'admin':
-            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-            expiry_date = get_user_active_subscription_expiry(user)
+            from apps.purchases.services.purchase_service import get_user_active_subscription_details
+            from django.db import models
+            start_date, expiry_date = get_user_active_subscription_details(user)
             if expiry_date:
-                qs = qs.filter(fecha_publicacion__lte=expiry_date)
+                qs = qs.filter(
+                    models.Q(modalidad='GRATUITA') |
+                    models.Q(modalidad='PAGO', fecha_publicacion__gte=start_date, fecha_publicacion__lte=expiry_date)
+                )
             else:
-                qs = qs.none()
+                qs = qs.filter(modalidad='GRATUITA')
         
         # Public filtering options
         company_id = self.request.query_params.get('company_id')
@@ -62,10 +66,11 @@ class PublicEditionDetailView(generics.RetrieveAPIView):
         # If user is logged in (authenticated) and not admin/superuser, restrict by active subscription
         user = self.request.user
         if user and user.is_authenticated and not user.is_superuser and getattr(user, 'usr_correo', '') != 'admin':
-            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-            expiry_date = get_user_active_subscription_expiry(user)
-            if not expiry_date or not edition.fecha_publicacion or edition.fecha_publicacion > expiry_date:
-                raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
+            if edition.modalidad != 'GRATUITA':
+                from apps.purchases.services.purchase_service import get_user_active_subscription_details
+                start_date, expiry_date = get_user_active_subscription_details(user)
+                if not expiry_date or not edition.fecha_publicacion or not (start_date <= edition.fecha_publicacion <= expiry_date):
+                    raise Http404("La edición especificada no existe, no está publicada o fue suspendida.")
                 
         return edition
 

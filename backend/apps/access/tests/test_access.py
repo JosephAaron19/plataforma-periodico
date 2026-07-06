@@ -76,9 +76,9 @@ class AccessServiceTest(SimpleTestCase):
         self.mock_calc_perms.return_value = set()
 
         # Start subscription expiry patcher
-        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_expiry')
+        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
         self.mock_sub_expiry = self.sub_expiry_patcher.start()
-        self.mock_sub_expiry.return_value = None
+        self.mock_sub_expiry.return_value = (None, None)
 
     def tearDown(self):
         self.calc_perms_patcher.stop()
@@ -277,9 +277,9 @@ class LibraryListViewTest(SimpleTestCase):
         self.mock_calc_perms = self.calc_perms_patcher.start()
         self.mock_calc_perms.return_value = set()
 
-        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_expiry')
+        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
         self.mock_sub_expiry = self.sub_expiry_patcher.start()
-        self.mock_sub_expiry.return_value = timezone.now() + timedelta(days=30)
+        self.mock_sub_expiry.return_value = (timezone.now() - timedelta(days=5), timezone.now() + timedelta(days=30))
 
     def tearDown(self):
         self.get_companies_patcher.stop()
@@ -291,7 +291,7 @@ class LibraryListViewTest(SimpleTestCase):
         Verify library returns empty list if no editions are accessible.
         """
         mock_is_super.return_value = False
-        self.mock_sub_expiry.return_value = None
+        self.mock_sub_expiry.return_value = (None, None)
         
         # Mock active accesses to be empty
         mock_access_qs = mock_access_objects.using.return_value.filter.return_value.filter.return_value
@@ -372,7 +372,7 @@ class LibraryListViewTest(SimpleTestCase):
 
 
 @patch('django.db.transaction.atomic', DummyAtomic)
-@patch('apps.purchases.services.purchase_service.get_user_active_subscription_expiry')
+@patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
 @patch('apps.editions.models.edicion.Edicion.objects')
 class UserAssignedEditionsListViewTest(SimpleTestCase):
     def setUp(self):
@@ -391,7 +391,7 @@ class UserAssignedEditionsListViewTest(SimpleTestCase):
         """
         Verify that user assigned editions returns an empty list if there's no active subscription.
         """
-        mock_sub_expiry.return_value = None
+        mock_sub_expiry.return_value = (None, None)
 
         from rest_framework.test import APIRequestFactory, force_authenticate
         from apps.access.views.library_views import UserAssignedEditionsListView
@@ -410,7 +410,7 @@ class UserAssignedEditionsListViewTest(SimpleTestCase):
         """
         Verify that editions published up to subscription end date are returned.
         """
-        mock_sub_expiry.return_value = timezone.now() + timedelta(days=30)
+        mock_sub_expiry.return_value = (timezone.now() - timedelta(days=5), timezone.now() + timedelta(days=30))
 
         mock_company = Empresa(
             id=10,

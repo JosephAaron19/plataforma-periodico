@@ -1,8 +1,13 @@
 import React from 'react';
-import { Leaf, Monitor, Clock, Lock } from 'lucide-react';
+import { Leaf, Monitor, Clock, Lock, Download } from 'lucide-react';
 import bgImage from '../../imports/digital_bg.png';
+import { usePWA } from '../contexts/PWAContext';
+import { useAuth } from '../contexts/auth';
 
 export function DigitalSection() {
+  const { isAuthenticated } = useAuth();
+  const { isInstallable, installPWA } = usePWA();
+
   return (
     <div className="relative w-full rounded-2xl overflow-hidden shadow-sm border border-slate-100/50 bg-[#eef6f0] select-none mt-8 min-h-[300px] flex items-center">
       {/* Background Image */}
@@ -59,6 +64,20 @@ export function DigitalSection() {
               Contenido seguro y confiable
             </span>
           </div>
+
+          {isAuthenticated && isInstallable && (
+            <div 
+              onClick={installPWA}
+              className="flex items-center gap-2 bg-[#1a4d2e] hover:bg-[#123620] rounded-xl p-2 border border-[#1a4d2e]/20 shadow-md cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 group select-none animate-in fade-in zoom-in-95 duration-300"
+            >
+              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                <Download size={16} className="text-[#1a4d2e] group-hover:scale-110 transition-transform" />
+              </div>
+              <span className="text-[10px] md:text-[11px] font-black text-white leading-tight max-w-[100px] uppercase tracking-wider">
+                Descargar App PWA
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

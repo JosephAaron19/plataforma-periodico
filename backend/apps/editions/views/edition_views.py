@@ -177,18 +177,22 @@ class CompanyEditionDetailUpdateView(generics.GenericAPIView):
                 now = timezone.now()
                 has_access = False
                 
-                expiry_date = get_user_active_subscription_expiry(request.user)
-                if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
+                if edition.modalidad == 'GRATUITA':
                     has_access = True
                 else:
-                    has_access = AccesoEdicion.objects.using('periodico_db').filter(
-                        usuario=request.user,
-                        edicion=edition,
-                        estado='ACTIVO',
-                        fecha_inicio__lte=now
-                    ).filter(
-                        models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
-                    ).exists()
+                    from apps.purchases.services.purchase_service import get_user_active_subscription_details
+                    start_date, expiry_date = get_user_active_subscription_details(request.user)
+                    if expiry_date and edition.fecha_publicacion and start_date <= edition.fecha_publicacion <= expiry_date:
+                        has_access = True
+                    else:
+                        has_access = AccesoEdicion.objects.using('periodico_db').filter(
+                            usuario=request.user,
+                            edicion=edition,
+                            estado='ACTIVO',
+                            fecha_inicio__lte=now
+                        ).filter(
+                            models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+                        ).exists()
 
                 if not has_access:
                     self.permission_denied(
@@ -486,21 +490,24 @@ class CompanyEditionPageView(APIView):
             now = timezone.now()
             has_access = False
             
-            # Check active subscription first
-            from apps.purchases.services.purchase_service import get_user_active_subscription_expiry
-            expiry_date = get_user_active_subscription_expiry(request.user)
-            if expiry_date and edition.fecha_publicacion and edition.fecha_publicacion <= expiry_date:
+            if edition.modalidad == 'GRATUITA':
                 has_access = True
             else:
-                # Check active AccesoEdicion record
-                has_access = AccesoEdicion.objects.using('periodico_db').filter(
-                    usuario=request.user,
-                    edicion=edition,
-                    estado='ACTIVO',
-                    fecha_inicio__lte=now
-                ).filter(
-                    models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
-                ).exists()
+                # Check active subscription first
+                from apps.purchases.services.purchase_service import get_user_active_subscription_details
+                start_date, expiry_date = get_user_active_subscription_details(request.user)
+                if expiry_date and edition.fecha_publicacion and start_date <= edition.fecha_publicacion <= expiry_date:
+                    has_access = True
+                else:
+                    # Check active AccesoEdicion record
+                    has_access = AccesoEdicion.objects.using('periodico_db').filter(
+                        usuario=request.user,
+                        edicion=edition,
+                        estado='ACTIVO',
+                        fecha_inicio__lte=now
+                    ).filter(
+                        models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gt=now)
+                    ).exists()
                 
             if not has_access:
                 raise PermissionDenied("No tienes acceso a esta edición.")
